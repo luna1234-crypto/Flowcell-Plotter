@@ -1,0 +1,1018 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Flowcell Plotter</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23156f8c'/%3E%3Cpath d='M12 44h40M16 38l9-11 8 6 15-17' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <style>
+    :root {
+      --ink: #15202b;
+      --muted: #667384;
+      --line: #d9e0e8;
+      --panel: #ffffff;
+      --soft: #f4f7fa;
+      --accent: #156f8c;
+      --accent-dark: #0d526a;
+      --danger: #a43d3d;
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #eef2f5;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(1400px, calc(100% - 56px)); margin: 0 auto; padding: 28px 0 64px; }
+    .topbar { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 26px; }
+    .workspace { display: grid; grid-template-columns: 390px minmax(0, 1fr); gap: 20px; align-items: start; }
+    .sidebar { display: grid; gap: 18px; position: static; }
+    .sidebar { font-size: 13px; }
+    .sidebar h2 { font-size: 17px; }
+    .sidebar h3 { font-size: 15px; }
+    .sidebar label { font-size: 12px; margin-bottom: 5px; }
+    .sidebar input, .sidebar select, .sidebar button { font-size: 13px; }
+    .sidebar .controls { grid-template-columns: 1fr; align-items: stretch; padding: 24px; gap: 12px; }
+    .sidebar .settings { padding: 24px; }
+    .sidebar .settings-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+    .sidebar .settings-grid > div:nth-child(4), .sidebar .settings-grid > div:nth-child(5) { grid-column: 1 / -1; }
+    .sidebar .legend-header { display: none; }
+    .sidebar .legend-row { grid-template-columns: minmax(0, 1fr) minmax(72px, .72fr) 34px 30px; width: 100%; max-width: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; padding: 8px; gap: 5px; }
+    .sidebar .legend-row { font-size: 12px; }
+    .sidebar .legend-row > span { grid-column: 1 / -1; font-weight: 700; overflow-wrap: anywhere; }
+    .sidebar .legend-row input[data-style="label"] { grid-column: 1; }
+    .sidebar .legend-row select { grid-column: 2; }
+    .sidebar .legend-row input[type="color"] { grid-column: 3; width: 34px; min-height: 32px; padding: 2px; }
+    .sidebar .legend-row button { grid-column: 4; justify-self: end; }
+    .sidebar .legend-row select, .sidebar .legend-row input[data-style="label"] { max-width: 100%; }
+    .sidebar .legend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+    .sidebar .legend-row > span { flex: 0 0 100%; }
+    .sidebar .legend-row small { display: block; color: var(--muted); font-weight: 500; margin-top: 3px; line-height: 1.35; }
+    .sidebar .legend-row input[data-style="label"] { flex: 1 1 0; min-width: 0; width: auto; }
+    .sidebar .legend-row select { flex: 0 1 88px; width: 88px; min-width: 0; }
+    .sidebar .legend-row input[type="color"] { flex: 0 0 34px; width: 34px; }
+    .sidebar .legend-row button { flex: 0 0 30px; width: 30px; }
+    .sidebar > .panel { min-width: 0; overflow: hidden; }
+    .sidebar .legend-list { width: calc(100% - 48px); min-width: 0; }
+    .sidebar > .panel > h3.section-title,
+    .sidebar > .panel > .legend-header,
+    .sidebar > .panel > .legend-list { margin-left: 24px; margin-right: 24px; }
+    .sidebar .select-actions { display: grid; grid-template-columns: 1fr 1fr; }
+    .next-line-settings { display: grid; grid-template-columns: 1fr 72px; gap: 10px; margin-top: 12px; }
+    .next-line-settings .wide { grid-column: 1 / -1; }
+    .method-note { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 4px 0 0; }
+    .sidebar .controls > div:last-child button { width: 100%; }
+    .results { min-width: 0; }
+    h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.04em; font-weight: 700; }
+    .intro { color: var(--muted); margin: 8px 0 0; font-size: 16px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 12px 30px rgba(34, 52, 71, .06); }
+    .controls { padding: 22px; display: grid; grid-template-columns: 1.3fr 1fr auto; align-items: end; gap: 18px; }
+    .settings { margin-top: 18px; padding: 20px 22px; }
+    .settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .settings-grid > * { min-width: 0; }
+    .legend-list { display: grid; gap: 10px; margin-top: 16px; }
+    .legend-header { display: grid; grid-template-columns: minmax(100px, 1fr) 1.2fr 1fr 46px 34px; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 700; }
+    .legend-row { display: grid; grid-template-columns: minmax(100px, 1fr) 1.2fr 1fr 46px 34px; align-items: center; gap: 8px; }
+    .legend-row > *, .legend-header > * { min-width: 0; }
+    .legend-row span { overflow-wrap: anywhere; word-break: break-word; }
+    .legend-row input, .legend-row select { width: 100%; min-width: 0; }
+    .legend-row input { min-height: 38px; }
+    .legend-row input[type="color"] { width: 46px; padding: 3px; }
+    .select-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .select-actions button { min-height: 32px; padding: 5px 10px; font-size: 13px; }
+    .section-title { margin: 0 0 12px; font-size: 16px; }
+    details { margin-top: 18px; }
+    summary { cursor: pointer; color: var(--ink); font-weight: 700; margin-bottom: 12px; }
+    input[type="checkbox"] { width: auto; min-height: auto; }
+    label { display: block; color: var(--muted); font-size: 13px; font-weight: 650; margin-bottom: 7px; }
+    input[type="file"], select, button {
+      width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: white; padding: 10px 12px; font: inherit; color: var(--ink);
+    }
+    input[type="file"] { padding: 8px; }
+    button { background: var(--accent); border-color: var(--accent); color: white; font-weight: 700; cursor: pointer; }
+    button:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+    button.secondary { margin-top: 8px; background: white; color: var(--accent); }
+    button.secondary:hover { background: var(--soft); color: var(--accent-dark); }
+    .status { padding: 0 22px 20px; color: var(--muted); font-size: 14px; min-height: 20px; }
+    .status.error { color: var(--danger); }
+    .validation-panel { margin: 0 22px 22px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); font-size: 12px; line-height: 1.45; }
+    .validation-panel strong { display: block; margin-bottom: 7px; font-size: 13px; }
+    .validation-panel ul { margin: 0; padding-left: 18px; }
+    .validation-panel li + li { margin-top: 5px; }
+    .validation-panel .issue-error { color: var(--danger); }
+    .validation-panel .issue-warning { color: #76561c; }
+    .summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
+    .badge { border: 1px solid var(--line); background: var(--soft); color: var(--muted); border-radius: 999px; padding: 7px 11px; font-size: 13px; }
+    .charts { display: grid; grid-template-columns: 1fr; gap: 18px; }
+    .chart-card { padding: 24px; min-width: 0; }
+    .chart-card.wide { grid-column: auto; }
+    .chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
+    .chart-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-left: auto; }
+    .icon-button { width: 34px; min-height: 32px; padding: 4px; border-radius: 8px; font-size: 17px; line-height: 1; }
+    h2 { margin: 0; font-size: 19px; letter-spacing: -0.02em; }
+    .chart-note { color: var(--muted); font-size: 12px; }
+    .chart-local-settings { margin-top: 18px; }
+    .chart-local-settings .settings-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    canvas { width: 100%; height: auto; aspect-ratio: 4 / 3; display: block; }
+    .empty { min-height: 420px; display: grid; place-items: center; color: var(--muted); font-size: 15px; text-align: center; padding: 30px; }
+    .table-panel { margin-top: 18px; padding: 20px 22px; overflow-x: auto; }
+    .results .settings { margin-top: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+    th { color: var(--muted); font-weight: 700; background: var(--soft); }
+    td:nth-child(2), td:nth-child(3) { font-variant-numeric: tabular-nums; }
+    @media (max-width: 780px) {
+      main { width: min(100% - 24px, 680px); padding-top: 24px; }
+      .topbar { display: block; }
+      .workspace { grid-template-columns: 1fr; }
+      .sidebar { position: static; }
+      .controls, .charts { grid-template-columns: 1fr; }
+      .settings-grid { grid-template-columns: 1fr; }
+      .chart-local-settings .settings-grid { grid-template-columns: 1fr 1fr; }
+      .chart-card.wide { grid-column: auto; }
+      .sidebar .legend-row { grid-template-columns: 1fr; }
+      .sidebar .legend-row input[data-style="label"],
+      .sidebar .legend-row select,
+      .sidebar .legend-row input[type="color"],
+      .sidebar .legend-row button { grid-column: 1; justify-self: start; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="topbar">
+      <div>
+        <h1>Flowcell Plotter</h1>
+        <p class="intro">Upload a flowcell folder, select materials, and plot iR-corrected IV and hold data.</p>
+      </div>
+    </section>
+
+    <div class="workspace">
+      <aside class="sidebar">
+    <section class="panel">
+      <div class="controls">
+        <div>
+          <label for="fileInput">Flowcell folder</label>
+          <input id="fileInput" type="file" webkitdirectory directory multiple accept=".csv,.CSV,.txt,.TXT" />
+        </div>
+        <div>
+          <label for="materialSelect">Material for next line</label>
+          <select id="materialSelect" disabled><option>Upload files first</option></select>
+          <div class="next-line-settings">
+            <div><label for="nextLegend">Legend name</label><input id="nextLegend" placeholder="Legend name" disabled /></div>
+            <div><label for="nextColor">Line color</label><input id="nextColor" type="color" value="#156f8c" disabled /></div>
+            <div class="wide"><label for="nextLineStyle">Line style</label><select id="nextLineStyle" disabled><option value="solid">Solid</option><option value="long-dash">Long dash</option><option value="short-dash">Short dash</option><option value="dotted">Dotted</option><option value="dashdot">Dash-dot</option></select></div>
+          </div>
+          <div class="select-actions"><button id="addLine" type="button" disabled>Add line</button><button id="clearSelection" type="button" disabled>Clear lines</button></div>
+        </div>
+        <div><button id="drawButton" type="button" disabled>Draw charts</button></div>
+      </div>
+      <div id="status" class="status">No data loaded.</div>
+      <div id="validationPanel" class="validation-panel" hidden>
+        <strong>Data checks</strong>
+        <ul id="validationList"></ul>
+      </div>
+      <h3 class="section-title" style="margin-top:18px;">Added lines <span id="lineCount" class="chart-note">(0)</span></h3>
+      <div class="legend-header"><span>Material</span><span>Legend name</span><span>Line style</span><span>Color</span><span></span></div>
+      <div id="legendSettings" class="legend-list"></div>
+    </section>
+
+    <section class="panel settings">
+      <h2 class="section-title">Chart settings</h2>
+      <div class="settings-grid">
+        <div><label for="ivTitle">IV title</label><input id="ivTitle" value="IV Curve" /></div>
+        <div><label for="holdTitle">Hold title</label><input id="holdTitle" value="Hold" /></div>
+        <div><label for="legendPosition">Legend position</label><select id="legendPosition"><option value="best">Best</option><option value="top-right">Top right</option><option value="top-left">Top left</option><option value="bottom-right">Bottom right</option><option value="bottom-left">Bottom left</option></select></div>
+      </div>
+      <details open>
+        <summary>Axes & annotations</summary>
+        <div class="settings-grid">
+          <div><label for="xDecimals">X decimal places</label><select id="xDecimals"><option value="auto">Auto</option><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>
+          <div><label for="yDecimals">Y decimal places</label><select id="yDecimals"><option value="auto">Auto</option><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>
+          <label><input id="showLegend" type="checkbox" checked /> Legend box</label>
+          <label><input id="applyIR" type="checkbox" checked /> Apply iR correction</label>
+        </div>
+        <p class="method-note">Electrode area is fixed at 5 cm². Correction uses the pre-test second GEIS measurement (02 / 200 mA). Rs is converted to area-specific resistance (Rs × 5 cm²), and the final-30-s average current is converted to current density (I ÷ 5 cm²). IV files are connected in ascending filename-current order.</p>
+      </details>
+    </section>
+      </aside>
+
+      <section class="results">
+    <div id="summary" class="summary"></div>
+
+    <section class="charts">
+      <article class="panel chart-card wide">
+        <div class="chart-head"><h2>IV Curve</h2><div class="chart-actions"><span id="ivMethodNote" class="chart-note">Last 30 seconds · 5 cm² · iR corrected</span><button class="icon-button" type="button" data-save="ivChart" data-name="iv_curve" title="Save IV curve" aria-label="Save IV curve">↓</button><button class="icon-button" type="button" data-copy="ivChart" title="Copy IV curve" aria-label="Copy IV curve">⧉</button><button class="icon-button" type="button" data-csv="iv" title="Save IV CSV" aria-label="Save IV CSV">▤</button></div></div>
+        <div id="ivEmpty" class="empty">Upload data to view the IV curve.</div>
+        <canvas id="ivChart" hidden></canvas>
+        <details class="chart-local-settings"><summary>IV axis settings</summary><div class="settings-grid"><div><label for="ivXRange">X range</label><input id="ivXRange" data-chart-setting placeholder="Auto, e.g. 0,2" /></div><div><label for="ivYRange">Y range</label><input id="ivYRange" data-chart-setting placeholder="Auto, e.g. 1,2.5" /></div><div><label for="ivXTick">X interval</label><input id="ivXTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div><div><label for="ivYTick">Y interval</label><input id="ivYTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div></div></details>
+      </article>
+      <article class="panel chart-card">
+        <div class="chart-head"><h2>Hold</h2><div class="chart-actions"><span class="chart-note">Voltage vs time</span><button class="icon-button" type="button" data-save="holdChart" data-name="hold_voltage_time" title="Save hold chart" aria-label="Save hold chart">↓</button><button class="icon-button" type="button" data-copy="holdChart" title="Copy hold chart" aria-label="Copy hold chart">⧉</button><button class="icon-button" type="button" data-csv="hold" title="Save hold CSV" aria-label="Save hold CSV">▤</button></div></div>
+        <div id="holdEmpty" class="empty">No hold file found.</div>
+        <canvas id="holdChart" hidden></canvas>
+        <details class="chart-local-settings"><summary>Hold axis settings</summary><div class="settings-grid"><div><label for="holdXRange">X range</label><input id="holdXRange" data-chart-setting placeholder="Auto" /></div><div><label for="holdYRange">Y range</label><input id="holdYRange" data-chart-setting placeholder="Auto" /></div><div><label for="holdXTick">X interval</label><input id="holdXTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div><div><label for="holdYTick">Y interval</label><input id="holdYTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div></div></details>
+      </article>
+    </section>
+
+    <section class="panel table-panel">
+      <h2 class="section-title">IV Summary</h2>
+      <div id="ivTableEmpty" class="chart-note">Upload data to view the IV summary.</div>
+      <table id="ivTable" hidden>
+        <thead><tr><th>Material</th><th>Applied I (A)</th><th>Average I (A)</th><th>Applied j (A cm⁻²)</th><th>Average j (A cm⁻²)</th><th>Raw average V (V)</th><th>ASR (Ω cm²)</th><th>iR drop (V)</th><th>Corrected V (V)</th><th>IV file</th><th>GEIS file</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const ELECTRODE_AREA_CM2 = 5;
+    const state = { materials: new Map(), selected: [], styles: new Map(), lineConfigs: [], issues: [] };
+    const palette = ["#156f8c", "#b24b45", "#3e7c59", "#76579b", "#c17835", "#4a6572"];
+    const $ = (id) => document.getElementById(id);
+
+    function materialName(file) {
+      const path = file.webkitRelativePath || "";
+      const parts = path.split("/").filter(Boolean);
+      return parts.length > 2 ? parts[parts.length - 2] : (parts[0] || "Uploaded material");
+    }
+
+    function sequenceNumber(file) {
+      const match = file.name.match(/^\s*(\d+)/);
+      return match ? Number(match[1]) : 999999;
+    }
+
+    function typeOf(file) {
+      const name = file.name.toLowerCase();
+      if (name.includes("break")) return "break";
+      if (name.includes("hold")) return "hold";
+      if (name.endsWith(".txt") && name.includes("geis")) return "geis";
+      if (name.endsWith(".txt") && name.includes("peis")) return "peis";
+      return name.endsWith(".csv") ? "iv" : "other";
+    }
+
+    function parseIvName(file) {
+      const name = file.name.trim();
+      if (!/\.csv$/i.test(name)) return { valid: false, reason: "File extension is not CSV." };
+      const stem = name.replace(/\.csv$/i, "");
+      const currentMatch = stem.match(/([0-9]+(?:\.[0-9]+)?)\s*a\s*$/i);
+      if (!currentMatch) return { valid: false, reason: "Current and unit A were not found at the end of the filename." };
+      const current = Number(currentMatch[1]);
+      if (!Number.isFinite(current)) return { valid: false, reason: "Current is not a valid number." };
+      const prefix = stem.slice(0, currentMatch.index).trim();
+      if (!prefix) return { valid: true, current, order: null };
+      const orderMatch = prefix.match(/^(\d+)(.*)$/);
+      if (!orderMatch) {
+        if (/[0-9.]/.test(prefix)) return { valid: false, reason: "Numbers before the current are ambiguous." };
+        return { valid: true, current, order: null };
+      }
+      const separator = orderMatch[2];
+      if (!separator || /[0-9.]/.test(separator)) {
+        return { valid: false, reason: "The order number and current are not separated clearly." };
+      }
+      return { valid: true, current, order: Number(orderMatch[1]) };
+    }
+
+    function currentFromName(file) {
+      const parsed = parseIvName(file);
+      return parsed.valid ? parsed.current : null;
+    }
+
+    function geisOrdinal(file) {
+      const name = file.name.toLowerCase();
+      const match = name.match(/(?:^|[^0-9])0*([12])[^0-9]*geis/);
+      if (match) return Number(match[1]);
+      if (/200\s*ma\b/.test(name)) return 2;
+      return null;
+    }
+
+    function getGeisSelection(files) {
+      const all = files.filter(item => item.kind === "geis");
+      const first = all.filter(item => geisOrdinal(item.file) === 1);
+      const second = all.filter(item => geisOrdinal(item.file) === 2);
+      const preTestSecond = second.filter(item => !/post\s*current\s*test/i.test(item.file.name));
+      if (preTestSecond.length > 1) {
+        return { selected: null, first, second, error: `Multiple pre-test second GEIS files found: ${preTestSecond.map(item => item.file.name).join(", ")}.` };
+      }
+      if (preTestSecond.length === 1) {
+        const selected = preTestSecond[0];
+        if (!Number.isFinite(selected.rs)) return { selected: null, first, second, error: `Rs could not be extracted from second GEIS file ${selected.file.name}.` };
+        return { selected, first, second, error: null };
+      }
+      if (second.length) {
+        return { selected: null, first, second, error: `Only post-test second GEIS file(s) found. A pre-test second GEIS (02 / 200 mA) is required.` };
+      }
+      return { selected: null, first, second, error: "Second GEIS file (02 / 200 mA) was not found or could not be identified from its filename." };
+    }
+
+    function chooseGeis(files) {
+      return getGeisSelection(files).selected;
+    }
+
+    function extractRs(points) {
+      const positiveRegions = [];
+      let region = [];
+      points.forEach(point => {
+        if (point.minusIm > 0) region.push(point);
+        else if (region.length) { positiveRegions.push(region); region = []; }
+      });
+      if (region.length) positiveRegions.push(region);
+      const crossingCandidates = positiveRegions.map(pointsInRegion =>
+        [...pointsInRegion].sort((a, b) => a.minusIm - b.minusIm || a.re - b.re)[0]
+      ).filter(point => point && point.re > 0);
+      if (!crossingCandidates.length) return { rs: null, candidates: [] };
+      const selected = [...crossingCandidates].sort((a, b) => a.re - b.re)[0];
+      return { rs: selected.re, candidates: crossingCandidates };
+    }
+
+    function parseTimestamp(value) {
+      const text = String(value || "").trim();
+      // Convert instrument timestamps to an ISO-like format supported by Safari.
+      const match = text.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})\s+(\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/);
+      if (match) {
+        return new Date(`${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}T${match[4]}`);
+      }
+      return new Date(text);
+    }
+
+    function selectedMaterials() {
+      return state.lineConfigs.map(config => config.material);
+    }
+
+    function materialStyle(name, index) {
+      if (!state.styles.has(name)) {
+        state.styles.set(name, { label: name, color: palette[index % palette.length], lineStyle: "solid" });
+      }
+      return state.styles.get(name);
+    }
+
+    function syncNextLineSettings() {
+      const material = $("materialSelect").value;
+      if (!material) return;
+      const style = materialStyle(material, state.lineConfigs.length);
+      $("nextLegend").value = style.label;
+      $("nextColor").value = style.color;
+      $("nextLineStyle").value = style.lineStyle;
+    }
+
+    function renderLegendSettings() {
+      const lines = state.lineConfigs;
+      $("lineCount").textContent = `(${lines.length})`;
+      $("legendSettings").innerHTML = lines.length ? lines.map((config, index) => {
+        const style = config;
+        const geis = chooseGeis(state.materials.get(config.material) || []);
+        return `<div class="legend-row">
+          <span>${config.material}<small>${geis ? `Second GEIS: ${geis.file.name} · ASR ${(geis.rs * ELECTRODE_AREA_CM2).toPrecision(6)} Ω cm²` : "Pre-test second GEIS (02 / 200 mA) not available"}</small></span>
+          <input data-style="label" data-index="${index}" value="${style.label.replaceAll('"', '&quot;')}" placeholder="Legend name" aria-label="Legend label for ${config.material}">
+          <select data-style="lineStyle" data-index="${index}" aria-label="Line style for ${config.material}">
+            <option value="solid" ${style.lineStyle === "solid" ? "selected" : ""}>Solid</option>
+            <option value="long-dash" ${style.lineStyle === "long-dash" ? "selected" : ""}>Long dash</option>
+            <option value="short-dash" ${style.lineStyle === "short-dash" ? "selected" : ""}>Short dash</option>
+            <option value="dotted" ${style.lineStyle === "dotted" ? "selected" : ""}>Dotted</option>
+            <option value="dashdot" ${style.lineStyle === "dashdot" ? "selected" : ""}>Dash-dot</option>
+          </select>
+          <input type="color" data-style="color" data-index="${index}" value="${style.color}" aria-label="Color for ${config.material}">
+          <button class="icon-button" type="button" data-remove-line="${index}" title="Remove line" aria-label="Remove line">×</button>
+        </div>`;
+      }).join("") : "<span class='chart-note'>Add a material to create a plot line.</span>";
+      $("legendSettings").querySelectorAll("input").forEach(input => {
+        input.addEventListener("input", () => {
+          state.lineConfigs[Number(input.dataset.index)][input.dataset.style] = input.value;
+          drawSelected();
+        });
+      });
+      $("legendSettings").querySelectorAll("select").forEach(select => {
+        select.addEventListener("change", () => {
+          state.lineConfigs[Number(select.dataset.index)].lineStyle = select.value;
+          drawSelected();
+        });
+      });
+      $("legendSettings").querySelectorAll("[data-remove-line]").forEach(button => {
+        button.addEventListener("click", () => {
+          state.lineConfigs.splice(Number(button.dataset.removeLine), 1);
+          renderLegendSettings();
+          drawSelected();
+        });
+      });
+    }
+
+    async function parseCsvFile(file) {
+      const text = await file.text();
+      const rows = text.split(/\r?\n/).filter(line => line.trim() && !line.trim().startsWith("#"));
+      const points = [];
+      let invalidRowCount = 0;
+      let zeroCurrentRowCount = 0;
+      for (const line of rows) {
+        const cells = line.split(",");
+        const time = parseTimestamp(cells[0]);
+        const voltage = Number(cells[1]);
+        const current = Number(cells[3]);
+        if (Number.isNaN(time.getTime()) || !Number.isFinite(voltage) || !Number.isFinite(current)) { invalidRowCount += 1; continue; }
+        if (Math.abs(current) === 0) { zeroCurrentRowCount += 1; continue; }
+        points.push({ time, voltage, current });
+      }
+      const filename = typeOf(file) === "iv" ? parseIvName(file) : { valid: true, current: null, order: sequenceNumber(file) === 999999 ? null : sequenceNumber(file) };
+      return { file, kind: typeOf(file), currentFromName: filename.current, orderFromName: filename.order, points, invalidRowCount, zeroCurrentRowCount };
+    }
+
+    async function parseEisFile(file) {
+      const text = await file.text();
+      const rows = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+      const points = [];
+      let invalidRowCount = 0;
+      for (const line of rows.slice(1)) {
+        const cells = line.split(/[\t,; ]+/).filter(Boolean);
+        const re = Number(cells[0]);
+        const minusIm = Number(cells[1]);
+        if (Number.isFinite(re) && Number.isFinite(minusIm)) points.push({ re, minusIm });
+        else invalidRowCount += 1;
+      }
+      const extracted = extractRs(points);
+      return { file, kind: typeOf(file), eisPoints: points, rs: extracted.rs, rsCandidates: extracted.candidates, invalidRowCount };
+    }
+
+    async function parseFile(file) {
+      return file.name.toLowerCase().endsWith(".txt") ? parseEisFile(file) : parseCsvFile(file);
+    }
+
+    function last30Stats(item) {
+      if (!item?.points?.length) return null;
+      const end = item.points[item.points.length - 1].time;
+      const start = new Date(end.getTime() - 30000);
+      const last = item.points.filter(point => point.time >= start);
+      if (!last.length) return null;
+      return {
+        averageVoltage: last.reduce((sum, point) => sum + point.voltage, 0) / last.length,
+        averageCurrent: last.reduce((sum, point) => sum + point.current, 0) / last.length,
+        count: last.length,
+      };
+    }
+
+    function ivResult(item, geis) {
+      const stats = last30Stats(item);
+      if (!stats) return null;
+      const rs = Number.isFinite(geis?.rs) ? geis.rs : null;
+      const appliedCurrentDensity = item.currentFromName / ELECTRODE_AREA_CM2;
+      const averageCurrentDensity = stats.averageCurrent / ELECTRODE_AREA_CM2;
+      const areaSpecificResistance = rs == null ? null : rs * ELECTRODE_AREA_CM2;
+      const irDrop = areaSpecificResistance == null ? null : averageCurrentDensity * areaSpecificResistance;
+      return {
+        appliedCurrent: item.currentFromName,
+        averageCurrent: stats.averageCurrent,
+        appliedCurrentDensity,
+        averageCurrentDensity,
+        rawVoltage: stats.averageVoltage,
+        rs,
+        areaSpecificResistance,
+        irDrop,
+        correctedVoltage: irDrop == null ? null : stats.averageVoltage - irDrop,
+        geisFile: geis?.file?.name || "Not found",
+      };
+    }
+
+    function addIssue(level, material, file, message) {
+      state.issues.push({ level, material, file, message });
+    }
+
+    function renderIssues() {
+      const panel = $("validationPanel");
+      const list = $("validationList");
+      if (!state.issues.length) {
+        panel.hidden = true;
+        list.innerHTML = "";
+        return;
+      }
+      panel.hidden = false;
+      list.innerHTML = state.issues.map(issue => {
+        const scope = [issue.material, issue.file].filter(Boolean).join(" · ");
+        return `<li class="issue-${issue.level}"><strong style="display:inline">${issue.level === "error" ? "Error" : "Warning"}:</strong> ${scope ? `${scope}: ` : ""}${issue.message}</li>`;
+      }).join("");
+    }
+
+    function validateMaterial(material, files) {
+      const ivItems = files.filter(item => item.kind === "iv");
+      const holdItems = files.filter(item => item.kind === "hold");
+      if (ivItems.length) {
+        const geisSelection = getGeisSelection(files);
+        if (geisSelection.error) addIssue("error", material, null, geisSelection.error);
+        const unidentifiedGeis = files.filter(item => item.kind === "geis" && geisOrdinal(item.file) == null).map(item => item.file.name);
+        if (unidentifiedGeis.length) addIssue("warning", material, null, `GEIS measurement number could not be identified: ${unidentifiedGeis.join(", ")}. Use 01/02 before GEIS or include 200 mA for the second GEIS.`);
+        if (geisSelection.selected?.invalidRowCount) {
+          addIssue("warning", material, geisSelection.selected.file.name, `${geisSelection.selected.invalidRowCount} GEIS row${geisSelection.selected.invalidRowCount === 1 ? " was" : "s were"} ignored because Re(Z) or −Im(Z) could not be parsed.`);
+        }
+        if ((geisSelection.selected?.rsCandidates?.length || 0) > 1) {
+          addIssue("warning", material, geisSelection.selected.file.name, `Multiple positive −Im(Z) regions were found. Rs = ${geisSelection.selected.rs.toPrecision(6)} Ω was selected as the smallest positive Re(Z) crossing candidate.`);
+        }
+        const missingOrder = ivItems.filter(item => item.orderFromName == null).map(item => item.file.name);
+        if (missingOrder.length) addIssue("warning", material, null, `Order number missing in ${missingOrder.join(", ")}. Plotting is unaffected because IV files are connected by filename current.`);
+        const orderGroups = new Map();
+        ivItems.filter(item => item.orderFromName != null).forEach(item => {
+          if (!orderGroups.has(item.orderFromName)) orderGroups.set(item.orderFromName, []);
+          orderGroups.get(item.orderFromName).push(item.file.name);
+        });
+        [...orderGroups.entries()].filter(([, names]) => names.length > 1).forEach(([order, names]) =>
+          addIssue("warning", material, null, `Duplicate order number ${order}: ${names.join(", ")}. Plotting is unaffected because IV files are connected by filename current.`)
+        );
+        const uniqueOrders = [...orderGroups.keys()].sort((a, b) => a - b);
+        const missingSequence = [];
+        for (let index = 1; index < uniqueOrders.length; index += 1) {
+          for (let value = uniqueOrders[index - 1] + 1; value < uniqueOrders[index]; value += 1) missingSequence.push(value);
+        }
+        if (missingSequence.length) addIssue("warning", material, null, `Order-number sequence has gaps: ${missingSequence.join(", ")}. Plotting is unaffected because IV files are connected by filename current.`);
+        ivItems.forEach(item => {
+          if (!item.points.length) addIssue("error", material, item.file.name, "No valid non-zero-current CSV rows were found.");
+          else if (!last30Stats(item)) addIssue("error", material, item.file.name, "The final 30-second average could not be calculated.");
+          if (item.invalidRowCount) addIssue("warning", material, item.file.name, `${item.invalidRowCount} row${item.invalidRowCount === 1 ? " was" : "s were"} ignored because time, voltage, or current could not be parsed.`);
+        });
+        const currentGroups = new Map();
+        ivItems.forEach(item => {
+          const key = item.currentFromName;
+          if (!currentGroups.has(key)) currentGroups.set(key, []);
+          currentGroups.get(key).push(item.file.name);
+        });
+        [...currentGroups.entries()].filter(([, names]) => names.length > 1).forEach(([current, names]) =>
+          addIssue("warning", material, null, `Duplicate filename current ${current} A: ${names.join(", ")}.`)
+        );
+      }
+      holdItems.forEach(item => {
+        if (!item.points.length) addIssue("error", material, item.file.name, "No valid non-zero-current Hold rows were found.");
+        if (item.invalidRowCount) addIssue("warning", material, item.file.name, `${item.invalidRowCount} Hold row${item.invalidRowCount === 1 ? " was" : "s were"} ignored because time, voltage, or current could not be parsed.`);
+      });
+    }
+
+    function enableLoadedControls() {
+      $("materialSelect").disabled = false;
+      $("drawButton").disabled = false;
+      $("addLine").disabled = false;
+      $("clearSelection").disabled = false;
+      $("nextLegend").disabled = false;
+      $("nextColor").disabled = false;
+      $("nextLineStyle").disabled = false;
+    }
+
+    function setStatus(message, error = false) {
+      $("status").textContent = message;
+      $("status").classList.toggle("error", error);
+    }
+
+    $("fileInput").addEventListener("change", async (event) => {
+      try {
+        state.materials.clear();
+        state.issues = [];
+        const files = [...event.target.files].filter(file => /\.(csv|txt)$/i.test(file.name));
+        if (!files.length) { setStatus("No CSV or TXT files found.", true); return; }
+        setStatus("Reading files…");
+        for (const file of files) {
+          const kind = typeOf(file);
+          const material = materialName(file);
+          if (kind === "break") {
+            addIssue("warning", material, file.name, "Break file was ignored as requested.");
+            continue;
+          }
+          if (kind === "iv") {
+            const parsedName = parseIvName(file);
+            if (!parsedName.valid) {
+              addIssue("error", material, file.name, `IV filename could not be processed. ${parsedName.reason}`);
+              continue;
+            }
+          }
+          if (kind === "other") {
+            addIssue("warning", material, file.name, "Unsupported file type was ignored.");
+            continue;
+          }
+          if (!state.materials.has(material)) state.materials.set(material, []);
+          try {
+            state.materials.get(material).push(await parseFile(file));
+          } catch (error) {
+            addIssue("error", material, file.name, `File could not be read. ${error.message}`);
+          }
+        }
+        state.materials.forEach((materialFiles, material) => validateMaterial(material, materialFiles));
+        renderIssues();
+        const select = $("materialSelect");
+      select.innerHTML = [...state.materials.keys()].map(name => `<option value="${name.replaceAll('"', '&quot;')}">${name}</option>`).join("");
+      enableLoadedControls();
+      state.lineConfigs = [];
+      syncNextLineSettings();
+      state.selected = selectedMaterials();
+      renderLegendSettings();
+      const loadedCount = [...state.materials.values()].reduce((sum, items) => sum + items.length, 0);
+      const errors = state.issues.filter(issue => issue.level === "error").length;
+      const warnings = state.issues.filter(issue => issue.level === "warning").length;
+      setStatus(`${loadedCount} data file${loadedCount === 1 ? "" : "s"} loaded. ${errors} error${errors === 1 ? "" : "s"}, ${warnings} warning${warnings === 1 ? "" : "s"}. Select a material for the next line.`, errors > 0);
+      drawSelected();
+      } catch (error) {
+        console.error(error);
+        setStatus(`Could not draw charts: ${error.message}`, true);
+      }
+    });
+
+    $("materialSelect").addEventListener("change", syncNextLineSettings);
+
+    $("addLine").addEventListener("click", () => {
+      const material = $("materialSelect").value;
+      if (!material || state.lineConfigs.some(config => config.material === material)) {
+        setStatus("Select a material that has not been added yet.", true);
+        return;
+      }
+      state.lineConfigs.push({
+        material,
+        label: $("nextLegend").value.trim() || material,
+        color: $("nextColor").value,
+        lineStyle: $("nextLineStyle").value,
+      });
+      state.selected = selectedMaterials();
+      renderLegendSettings();
+      drawSelected();
+    });
+    $("clearSelection").addEventListener("click", () => {
+      state.lineConfigs = [];
+      state.selected = []; renderLegendSettings(); drawSelected();
+    });
+    $("drawButton").addEventListener("click", () => {
+      try {
+        drawSelected();
+        const errors = state.issues.filter(issue => issue.level === "error").length;
+        setStatus(errors ? `Charts updated with ${errors} data error${errors === 1 ? "" : "s"}. Review Data checks.` : "Charts updated.", errors > 0);
+      }
+      catch (error) { console.error(error); setStatus(`Could not draw charts: ${error.message}`, true); }
+    });
+    ["ivTitle", "holdTitle", "legendPosition", "xDecimals", "yDecimals", "showLegend", "applyIR"].forEach(id => $(id).addEventListener("input", drawSelected));
+    document.querySelectorAll("[data-chart-setting]").forEach(input => input.addEventListener("input", drawSelected));
+
+    document.querySelectorAll("[data-save]").forEach(button => {
+      button.addEventListener("click", () => saveChart(button.dataset.save, button.dataset.name));
+    });
+    document.querySelectorAll("[data-copy]").forEach(button => {
+      button.addEventListener("click", () => copyChart(button.dataset.copy));
+    });
+    document.querySelectorAll("[data-csv]").forEach(button => {
+      button.addEventListener("click", () => saveCSV(button.dataset.csv));
+    });
+
+    function outputPrefix() {
+      return (state.selected.length ? state.selected.join("_") : "flowcell")
+        .replace(/[^a-z0-9_-]+/gi, "_");
+    }
+
+    function saveChart(canvasId, name) {
+      const canvas = $(canvasId);
+      if (canvas.hidden) { setStatus("Draw the chart before saving.", true); return; }
+      const link = document.createElement("a");
+      link.download = `${outputPrefix()}_${name}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      setStatus(`Saved ${link.download}.`);
+    }
+
+    async function copyChart(canvasId) {
+      const canvas = $(canvasId);
+      if (canvas.hidden) { setStatus("Draw the chart before copying.", true); return; }
+      if (!navigator.clipboard || !window.ClipboardItem) {
+        setStatus("Copy is not available in this browser. Use Save instead.", true);
+        return;
+      }
+      canvas.toBlob(async blob => {
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          setStatus("Chart copied to the clipboard.");
+        } catch (error) {
+          setStatus("Copy was blocked by the browser. Use Save instead.", true);
+        }
+      }, "image/png");
+    }
+
+    function csvEscape(value) {
+      const text = String(value ?? "");
+      return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+    }
+
+    function downloadCSV(filename, headers, rows) {
+      if (!rows.length) { setStatus("No data available for CSV export.", true); return; }
+      const csv = [headers, ...rows].map(row => row.map(csvEscape).join(",")).join("\n");
+      const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+      const link = document.createElement("a");
+      link.download = `${outputPrefix()}_${filename}.csv`;
+      link.href = URL.createObjectURL(blob);
+      link.click();
+      URL.revokeObjectURL(link.href);
+      setStatus(`Saved ${link.download}.`);
+    }
+
+    function saveCSV(kind) {
+      const groups = state.lineConfigs.map(config => ({
+        name: config.material,
+        style: config,
+        files: state.materials.get(config.material) || [],
+      })).map(group => ({ ...group, geis: chooseGeis(group.files) }));
+      const rows = [];
+
+      if (kind === "iv") {
+        groups.forEach(group => {
+          group.files.filter(item => item.kind === "iv")
+            .map(item => ({ item, result: ivResult(item, group.geis) }))
+            .filter(entry => entry.result)
+            .sort((a, b) => a.result.appliedCurrent - b.result.appliedCurrent || (a.item.orderFromName ?? Infinity) - (b.item.orderFromName ?? Infinity))
+            .forEach(({ item, result }) => {
+            rows.push([
+              group.style.label,
+              item.file.name,
+              result.appliedCurrent,
+              result.averageCurrent,
+              result.appliedCurrentDensity,
+              result.averageCurrentDensity,
+              result.rawVoltage,
+              result.rs,
+              result.areaSpecificResistance,
+              result.irDrop,
+              result.correctedVoltage,
+              result.geisFile,
+            ]);
+          });
+        });
+        downloadCSV("iv_curve", ["Material", "IV File", "Applied Current (A)", "Average Current, last 30 s (A)", "Applied Current Density (A/cm^2)", "Average Current Density, last 30 s (A/cm^2)", "Raw Average Voltage, last 30 s (V)", "Rs (Ohm)", "Area-Specific Resistance (Ohm cm^2)", "iR Drop (V)", "Corrected Voltage (V)", "GEIS File"], rows);
+        return;
+      }
+
+      groups.forEach((group, groupIndex) => {
+        group.files.filter(item => item.kind === kind).forEach(item => {
+          const first = item.points[0]?.time;
+          if (!first) return;
+          item.points.forEach(point => rows.push([
+            group.style.label,
+            item.file.name,
+            ((point.time - first) / 1000).toFixed(3),
+            point.voltage,
+          ]));
+        });
+      });
+      downloadCSV(`${kind}_voltage_time`, ["Material", "File", "Time (s)", "Voltage (V)"], rows);
+    }
+
+    function drawSelected() {
+      const groups = state.lineConfigs.map(config => ({
+        name: config.material,
+        style: config,
+        files: state.materials.get(config.material) || [],
+      })).map(group => ({ ...group, geis: chooseGeis(group.files) }));
+      state.selected = groups.map(group => group.name);
+      $("ivMethodNote").textContent = `Last 30 seconds · ${ELECTRODE_AREA_CM2} cm² · ${$("applyIR").checked ? "iR corrected" : "raw voltage"}`;
+      renderSummary(groups);
+      renderIV(groups);
+      renderIVTable(groups);
+      renderTrace("hold", groups, "holdChart", "holdEmpty");
+    }
+
+    function renderSummary(groups) {
+      const all = groups.flatMap(group => group.files);
+      const iv = all.filter(item => item.kind === "iv");
+      const holds = all.filter(item => item.kind === "hold");
+      $("summary").innerHTML = [
+        `<span class="badge">Materials: ${groups.map(group => group.style.label).join(", ") || "None"}</span>`,
+        `<span class="badge">IV files: ${iv.length}</span>`,
+        `<span class="badge">Hold files: ${holds.length}</span>`,
+        ...groups.map(group => `<span class="badge">${group.style.label} · ASR: ${group.geis ? `${(group.geis.rs * ELECTRODE_AREA_CM2).toPrecision(6)} Ω cm²` : "second GEIS not found"}</span>`)
+      ].join("");
+    }
+
+    function showChart(canvasId, emptyId, visible) {
+      $(canvasId).hidden = !visible;
+      $(emptyId).hidden = visible;
+      $(canvasId).style.display = visible ? "block" : "none";
+      $(emptyId).style.display = visible ? "none" : "grid";
+    }
+
+    function niceScale(values) {
+      let min = Math.min(...values), max = Math.max(...values);
+      const nonNegative = min >= 0;
+      if (min === max) { min -= 1; max += 1; }
+      const roughStep = (max - min) / 5;
+      const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+      const normalized = roughStep / magnitude;
+      const niceFactor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+      const step = niceFactor * magnitude;
+      return {
+        min: nonNegative ? Math.max(0, Math.floor(min / step) * step) : Math.floor(min / step) * step,
+        max: Math.ceil(max / step) * step,
+        step,
+      };
+    }
+
+    function formatTick(value, step, override = "auto") {
+      const decimals = override === "auto" ? Math.max(0, Math.min(4, Math.ceil(-Math.log10(step)))) : Number(override);
+      return value.toFixed(decimals).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+    }
+
+    function parseRangeInput(id) {
+      const text = $(id).value.trim();
+      if (!text) return null;
+      const values = text.split(",").map(Number);
+      return values.length === 2 && values.every(Number.isFinite) && values[1] > values[0] ? values : null;
+    }
+
+    function axisScale(values, axis, chartKey) {
+      const prefix = chartKey + (axis === "x" ? "X" : "Y");
+      const manualRange = parseRangeInput(prefix + "Range");
+      const manualStep = Number($(prefix + "Tick").value);
+      const decimalSetting = $(axis === "x" ? "xDecimals" : "yDecimals").value;
+      const base = niceScale(values);
+      const min = manualRange ? manualRange[0] : base.min;
+      const max = manualRange ? manualRange[1] : base.max;
+      const step = Number.isFinite(manualStep) && manualStep > 0 ? manualStep : base.step;
+      const start = manualRange ? min : Math.floor(min / step) * step;
+      const end = manualRange ? max : Math.ceil(max / step) * step;
+      return { min: start, max: end, step, decimals: decimalSetting };
+    }
+
+    function drawAxes(ctx, width, height, margins, xLabel, yLabel, xRange, yRange) {
+      const { left, right, top, bottom } = margins;
+      ctx.strokeStyle = "#111111"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(left, top); ctx.lineTo(left, height - bottom); ctx.lineTo(width - right, height - bottom); ctx.stroke();
+      ctx.fillStyle = "#111111"; ctx.font = "18px Inter, system-ui, sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(xLabel, (left + width - right) / 2, height - bottom + 52);
+      ctx.save(); ctx.translate(left - 60, (top + height - bottom) / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(yLabel, 0, 0); ctx.restore();
+      const xTicks = Math.round((xRange.max - xRange.min) / xRange.step);
+      const yTicks = Math.round((yRange.max - yRange.min) / yRange.step);
+      ctx.strokeStyle = "#17212b"; ctx.lineWidth = 1;
+      ctx.textAlign = "center";
+      for (let i = 0; i <= xTicks; i++) {
+        const value = xRange.min + i * xRange.step;
+        const x = left + (value - xRange.min) / (xRange.max - xRange.min) * (width - left - right);
+        ctx.beginPath(); ctx.moveTo(x, height - bottom); ctx.lineTo(x, height - bottom + 5); ctx.stroke();
+        ctx.fillText(formatTick(value, xRange.step, xRange.decimals), x, height - bottom + 20);
+      }
+      ctx.textAlign = "right";
+      for (let i = 0; i <= yTicks; i++) {
+        const value = yRange.min + i * yRange.step;
+        const y = height - bottom - (value - yRange.min) / (yRange.max - yRange.min) * (height - top - bottom);
+        ctx.beginPath(); ctx.moveTo(left - 5, y); ctx.lineTo(left, y); ctx.stroke();
+        ctx.fillText(formatTick(value, yRange.step, yRange.decimals), left - 8, y + 4);
+      }
+    }
+
+    function formatNumber(value) { return Math.abs(value) >= 10 ? value.toFixed(0) : value.toFixed(2); }
+
+    function renderIV(groups) {
+      const series = [];
+      const applyIR = $("applyIR").checked;
+      for (const group of groups) {
+        const points = [];
+        const items = group.files.filter(item => item.kind === "iv")
+          .map(item => ({ item, result: ivResult(item, group.geis) }))
+          .filter(entry => entry.result)
+          .sort((a, b) => a.result.appliedCurrent - b.result.appliedCurrent || (a.item.orderFromName ?? Infinity) - (b.item.orderFromName ?? Infinity));
+        for (const { result } of items) {
+          if (applyIR && result.correctedVoltage == null) continue;
+          points.push({ x: result.averageCurrentDensity, y: applyIR ? result.correctedVoltage : result.rawVoltage });
+        }
+        if (points.length) series.push({ points, label: group.style.label, color: group.style.color, lineStyle: group.style.lineStyle, markers: true });
+      }
+      if (!series.length) { showChart("ivChart", "ivEmpty", false); return; }
+      showChart("ivChart", "ivEmpty", true);
+      drawLineChart("ivChart", series, "Current density (A cm⁻²)", "Voltage (V)", true, $("ivTitle").value, "iv");
+    }
+
+    function renderIVTable(groups) {
+      const rows = [];
+      groups.forEach((group, groupIndex) => {
+        group.files.filter(item => item.kind === "iv").forEach(item => {
+          const result = ivResult(item, group.geis);
+          if (!result) return;
+          rows.push({
+            groupIndex,
+            material: group.style.label,
+            ...result,
+            file: item.file.name,
+          });
+        });
+      });
+      rows.sort((a, b) => a.groupIndex - b.groupIndex || a.appliedCurrent - b.appliedCurrent);
+      const table = $("ivTable");
+      const empty = $("ivTableEmpty");
+      if (!rows.length) {
+        table.hidden = true;
+        empty.hidden = false;
+        return;
+      }
+      table.hidden = false;
+      empty.hidden = true;
+      table.querySelector("tbody").innerHTML = rows.map(row => `<tr>
+        <td>${row.material}</td>
+        <td>${row.appliedCurrent.toFixed(6)}</td>
+        <td>${row.averageCurrent.toFixed(6)}</td>
+        <td>${row.appliedCurrentDensity.toFixed(6)}</td>
+        <td>${row.averageCurrentDensity.toFixed(6)}</td>
+        <td>${row.rawVoltage.toFixed(6)}</td>
+        <td>${row.areaSpecificResistance == null ? "n.a." : row.areaSpecificResistance.toFixed(6)}</td>
+        <td>${row.irDrop == null ? "n.a." : row.irDrop.toFixed(6)}</td>
+        <td>${row.correctedVoltage == null ? "n.a." : row.correctedVoltage.toFixed(6)}</td>
+        <td>${row.file}</td>
+        <td>${row.geisFile}</td>
+      </tr>`).join("");
+    }
+
+    function renderTrace(kind, groups, canvasId, emptyId) {
+      const series = [];
+      groups.forEach(group => {
+        const items = group.files.filter(item => item.kind === kind).sort((a, b) => sequenceNumber(a.file) - sequenceNumber(b.file));
+        items.forEach((item, index) => {
+          const first = item.points[0]?.time;
+          if (!first) return;
+          series.push({ label: items.length > 1 ? `${group.style.label} · ${index + 1}` : group.style.label, color: group.style.color, lineStyle: group.style.lineStyle, points: item.points.map(p => ({ x: (p.time - first) / 1000, y: p.voltage })) });
+        });
+      });
+      if (!series.length) { $(emptyId).textContent = `No ${kind} file found.`; showChart(canvasId, emptyId, false); return; }
+      showChart(canvasId, emptyId, true);
+      const title = $("holdTitle").value;
+      drawLineChart(canvasId, series, "Time (s)", "Voltage (V)", false, title, kind);
+    }
+
+    function drawLineChart(canvasId, series, xLabel, yLabel, markers, title, chartKey) {
+      const canvas = $(canvasId), ratio = window.devicePixelRatio || 1, rect = canvas.getBoundingClientRect();
+      const width = Math.max(520, rect.width);
+      const height = Math.round(width * 0.75);
+      canvas.width = width * ratio; canvas.height = height * ratio;
+      const ctx = canvas.getContext("2d"); ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height);
+      const margins = { left: 96, right: 88, top: 90, bottom: 86 };
+      const allX = series.flatMap(s => s.points.map(p => p.x)); const allY = series.flatMap(s => s.points.map(p => p.y));
+      const xRange = axisScale(allX, "x", chartKey), yRange = axisScale(allY, "y", chartKey);
+      const xMap = value => margins.left + ((value - xRange.min) / (xRange.max - xRange.min)) * (width - margins.left - margins.right);
+      const yMap = value => height - margins.bottom - ((value - yRange.min) / (yRange.max - yRange.min)) * (height - margins.top - margins.bottom);
+      drawAxes(ctx, width, height, margins, xLabel, yLabel, xRange, yRange);
+      ctx.fillStyle = "#15202b"; ctx.font = "600 22px Inter, system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(title, width / 2, 30);
+      for (const line of series) {
+        ctx.strokeStyle = line.color; ctx.lineWidth = 1.7;
+        ctx.setLineDash(line.lineStyle === "long-dash" ? [9, 3] : line.lineStyle === "short-dash" ? [3, 2] : line.lineStyle === "dotted" ? [1, 3] : line.lineStyle === "dashdot" ? [9, 3, 2, 3] : []);
+        ctx.beginPath();
+        line.points.forEach((point, index) => { const x = xMap(point.x), y = yMap(point.y); index ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
+        if (markers) line.points.forEach(point => { ctx.fillStyle = line.color; ctx.beginPath(); ctx.arc(xMap(point.x), yMap(point.y), 3.2, 0, Math.PI * 2); ctx.fill(); });
+      }
+      ctx.setLineDash([]);
+      drawLegend(ctx, series, width, height, margins, xMap, yMap);
+    }
+
+    function drawLegend(ctx, series, width, height, margins, xMap, yMap) {
+      if (series.length < 1 || !$("showLegend").checked) return;
+      const availableWidth = width - margins.left - margins.right - 24;
+      let fontSize = 16;
+      const availableHeight = height - margins.top - margins.bottom - 16;
+      let rowHeight = fontSize + 6;
+      ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
+      const longestLabel = () => Math.max(...series.map(line => ctx.measureText(line.label).width));
+      while ((longestLabel() + 48 > availableWidth || series.length * rowHeight + 14 > availableHeight) && fontSize > 10) {
+        fontSize -= 1;
+        rowHeight = fontSize + 6;
+        ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
+      }
+      const boxPadding = 7;
+      const boxWidth = Math.min(availableWidth, Math.max(140, longestLabel() + 48));
+      const boxHeight = Math.min(series.length * rowHeight + boxPadding * 2, height - margins.top - margins.bottom - 16);
+      const gap = 12;
+      const candidates = {
+        "top-right": [width - margins.right - boxWidth, margins.top + gap],
+        "top-left": [margins.left + gap, margins.top + gap],
+        "bottom-right": [width - margins.right - boxWidth, height - margins.bottom - boxHeight - gap],
+        "bottom-left": [margins.left + gap, height - margins.bottom - boxHeight - gap],
+      };
+      const requested = $("legendPosition").value;
+      let position = requested;
+      if (requested === "best") {
+        const scores = Object.entries(candidates).map(([name, [candidateX, candidateY]]) => {
+          const score = series.reduce((total, line) => total + line.points.reduce((count, point) => {
+            const px = xMap(point.x), py = yMap(point.y);
+            return count + (px >= candidateX && px <= candidateX + boxWidth && py >= candidateY && py <= candidateY + boxHeight ? 1 : 0);
+          }, 0), 0);
+          return { name, score };
+        });
+        position = scores.sort((a, b) => a.score - b.score)[0].name;
+      }
+      const [x, y] = candidates[position];
+
+      ctx.fillStyle = "rgba(255, 255, 255, 0)";
+      ctx.strokeStyle = "#17212b";
+      ctx.lineWidth = 1;
+      ctx.fillRect(x, y, boxWidth, boxHeight);
+      ctx.strokeRect(x, y, boxWidth, boxHeight);
+      ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+      series.forEach((line, index) => {
+        const rowY = y + boxPadding + rowHeight / 2 + index * rowHeight;
+        ctx.strokeStyle = line.color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash(line.lineStyle === "long-dash" ? [9, 3] : line.lineStyle === "short-dash" ? [3, 2] : line.lineStyle === "dotted" ? [1, 3] : line.lineStyle === "dashdot" ? [9, 3, 2, 3] : []);
+        ctx.beginPath(); ctx.moveTo(x + 10, rowY - 4); ctx.lineTo(x + 31, rowY - 4); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#15202b";
+        ctx.fillText(line.label, x + 40, rowY);
+      });
+      ctx.textBaseline = "alphabetic";
+    }
+  </script>
+</body>
+</html>
