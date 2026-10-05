@@ -194,7 +194,7 @@
           <label><input id="showLegend" type="checkbox" checked /> Legend box</label>
           <label><input id="applyIR" type="checkbox" checked /> Apply iR correction</label>
         </div>
-        <p class="method-note">Electrode area is fixed at 5 cm². Correction uses the pre-test second GEIS measurement (02 / 200 mA) and the final-30-s average current: iR drop = I × (Rs × 5). Current is converted to current density (I ÷ 5 cm²) only for plotting. IV files are connected in ascending filename-current order.</p>
+        <p class="method-note">Electrode area is fixed at 5 cm². Correction uses the pre-test second GEIS measurement (02 / 200 mA) and the final-30-s average current: iR drop = I × Rs, using Rs exactly as extracted from EIS. Current is divided by 5 cm² only to obtain current density for plotting. IV files are connected in ascending filename-current order.</p>
       </details>
     </section>
       </aside>
@@ -221,7 +221,7 @@
       <h2 class="section-title">IV Summary</h2>
       <div id="ivTableEmpty" class="chart-note">Upload data to view the IV summary.</div>
       <table id="ivTable" hidden>
-        <thead><tr><th>Material</th><th>Applied I (A)</th><th>Average I (A)</th><th>Applied j (A cm⁻²)</th><th>Average j (A cm⁻²)</th><th>Raw average V (V)</th><th>5×Rs correction R (Ω)</th><th>iR drop (V)</th><th>Corrected V (V)</th><th>IV file</th><th>GEIS file</th></tr></thead>
+        <thead><tr><th>Material</th><th>Applied I (A)</th><th>Average I (A)</th><th>Applied j (A cm⁻²)</th><th>Average j (A cm⁻²)</th><th>Raw average V (V)</th><th>Rs (Ω)</th><th>iR drop (V)</th><th>Corrected V (V)</th><th>IV file</th><th>GEIS file</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -366,7 +366,7 @@
         const style = config;
         const geis = chooseGeis(state.materials.get(config.material) || []);
         return `<div class="legend-row">
-          <span>${config.material}<small>${geis ? `Second GEIS: ${geis.file.name} · 5×Rs ${(geis.rs * ELECTRODE_AREA_CM2).toPrecision(6)} Ω` : "Pre-test second GEIS (02 / 200 mA) not available"}</small></span>
+          <span>${config.material}<small>${geis ? `Second GEIS: ${geis.file.name} · Rs ${geis.rs.toPrecision(6)} Ω` : "Pre-test second GEIS (02 / 200 mA) not available"}</small></span>
           <input data-style="label" data-index="${index}" value="${style.label.replaceAll('"', '&quot;')}" placeholder="Legend name" aria-label="Legend label for ${config.material}">
           <select data-style="lineStyle" data-index="${index}" aria-label="Line style for ${config.material}">
             <option value="solid" ${style.lineStyle === "solid" ? "selected" : ""}>Solid</option>
@@ -458,10 +458,7 @@
       const rs = Number.isFinite(geis?.rs) ? geis.rs : null;
       const appliedCurrentDensity = item.currentFromName / ELECTRODE_AREA_CM2;
       const averageCurrentDensity = stats.averageCurrent / ELECTRODE_AREA_CM2;
-      const correctionResistance = rs == null ? null : rs * ELECTRODE_AREA_CM2;
-      // Apply the requested fivefold resistance correction using the measured
-      // final-30-s current. Current density is used only for the IV x-axis.
-      const irDrop = correctionResistance == null ? null : stats.averageCurrent * correctionResistance;
+      const irDrop = rs == null ? null : stats.averageCurrent * rs;
       return {
         appliedCurrent: item.currentFromName,
         averageCurrent: stats.averageCurrent,
@@ -469,7 +466,6 @@
         averageCurrentDensity,
         rawVoltage: stats.averageVoltage,
         rs,
-        correctionResistance,
         irDrop,
         correctedVoltage: irDrop == null ? null : stats.averageVoltage - irDrop,
         geisFile: geis?.file?.name || "Not found",
@@ -729,14 +725,13 @@
               result.averageCurrentDensity,
               result.rawVoltage,
               result.rs,
-              result.correctionResistance,
               result.irDrop,
               result.correctedVoltage,
               result.geisFile,
             ]);
           });
         });
-        downloadCSV("iv_curve", ["Material", "IV File", "Applied Current (A)", "Average Current, last 30 s (A)", "Applied Current Density (A/cm^2)", "Average Current Density, last 30 s (A/cm^2)", "Raw Average Voltage, last 30 s (V)", "Rs (Ohm)", "5xRs Correction Resistance (Ohm)", "iR Drop (V)", "Corrected Voltage (V)", "GEIS File"], rows);
+        downloadCSV("iv_curve", ["Material", "IV File", "Applied Current (A)", "Average Current, last 30 s (A)", "Applied Current Density (A/cm^2)", "Average Current Density, last 30 s (A/cm^2)", "Raw Average Voltage, last 30 s (V)", "Rs (Ohm)", "iR Drop (V)", "Corrected Voltage (V)", "GEIS File"], rows);
         return;
       }
 
@@ -777,7 +772,7 @@
         `<span class="badge">Materials: ${groups.map(group => group.style.label).join(", ") || "None"}</span>`,
         `<span class="badge">IV files: ${iv.length}</span>`,
         `<span class="badge">Hold files: ${holds.length}</span>`,
-        ...groups.map(group => `<span class="badge">${group.style.label} · 5×Rs: ${group.geis ? `${(group.geis.rs * ELECTRODE_AREA_CM2).toPrecision(6)} Ω` : "second GEIS not found"}</span>`)
+        ...groups.map(group => `<span class="badge">${group.style.label} · Rs: ${group.geis ? `${group.geis.rs.toPrecision(6)} Ω` : "second GEIS not found"}</span>`)
       ].join("");
     }
 
@@ -909,7 +904,7 @@
         <td>${row.appliedCurrentDensity.toFixed(6)}</td>
         <td>${row.averageCurrentDensity.toFixed(6)}</td>
         <td>${row.rawVoltage.toFixed(6)}</td>
-        <td>${row.correctionResistance == null ? "n.a." : row.correctionResistance.toFixed(6)}</td>
+        <td>${row.rs == null ? "n.a." : row.rs.toFixed(6)}</td>
         <td>${row.irDrop == null ? "n.a." : row.irDrop.toFixed(6)}</td>
         <td>${row.correctedVoltage == null ? "n.a." : row.correctedVoltage.toFixed(6)}</td>
         <td>${row.file}</td>
