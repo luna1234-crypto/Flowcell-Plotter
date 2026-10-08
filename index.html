@@ -103,6 +103,12 @@
     .validation-panel li + li { margin-top: 5px; }
     .validation-panel .issue-error { color: var(--danger); }
     .validation-panel .issue-warning { color: #76561c; }
+    .validation-panel .issue-group { list-style: none; margin-left: -18px; }
+    .validation-panel .issue-group + .issue-group { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
+    .validation-panel .issue-material { display: block; color: var(--ink); font-size: 13px; margin-bottom: 6px; }
+    .validation-panel .issue-section + .issue-section { margin-top: 7px; }
+    .validation-panel .issue-heading { display: block; font-size: 12px; margin-bottom: 3px; }
+    .validation-panel .issue-section ul { padding-left: 17px; }
     .summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
     .badge { border: 1px solid var(--line); background: var(--soft); color: var(--muted); border-radius: 999px; padding: 7px 11px; font-size: 13px; }
     .charts { display: grid; grid-template-columns: 1fr; gap: 18px; }
@@ -194,7 +200,7 @@
           <label><input id="showLegend" type="checkbox" checked /> Legend box</label>
           <label><input id="applyIR" type="checkbox" checked /> Apply iR correction</label>
         </div>
-        <p class="method-note">Electrode area is fixed at 5 cm². Correction uses the pre-test second GEIS measurement (02 / 200 mA) and the final-30-s average current: iR drop = I × Rs, using Rs exactly as extracted from EIS. Current is divided by 5 cm² only to obtain current density for plotting. IV files are connected in ascending filename-current order.</p>
+        <p class="method-note">Electrode area is fixed at 5 cm². Correction uses the before-LSV second GEIS measurement (02 / 200 mA): filenames containing “after” are excluded. The final-30-s average current is used for iR drop = I × Rs. Current is divided by 5 cm² only to obtain current density for plotting. IV files are connected in ascending filename-current order.</p>
       </details>
     </section>
       </aside>
@@ -294,19 +300,20 @@
       const all = files.filter(item => item.kind === "geis");
       const first = all.filter(item => geisOrdinal(item.file) === 1);
       const second = all.filter(item => geisOrdinal(item.file) === 2);
-      const preTestSecond = second.filter(item => !/post\s*current\s*test/i.test(item.file.name));
-      if (preTestSecond.length > 1) {
-        return { selected: null, first, second, error: `Multiple pre-test second GEIS files found: ${preTestSecond.map(item => item.file.name).join(", ")}.` };
+      const afterLsvSecond = second.filter(item => /after|post[\s_-]*(?:current[\s_-]*test|lsv)/i.test(item.file.name));
+      const beforeLsvSecond = second.filter(item => !afterLsvSecond.includes(item));
+      if (beforeLsvSecond.length > 1) {
+        return { selected: null, first, second, error: `Multiple before-LSV 02 GEIS files: ${beforeLsvSecond.map(item => item.file.name).join(", ")}. Keep one.` };
       }
-      if (preTestSecond.length === 1) {
-        const selected = preTestSecond[0];
-        if (!Number.isFinite(selected.rs)) return { selected: null, first, second, error: `Rs could not be extracted from second GEIS file ${selected.file.name}.` };
+      if (beforeLsvSecond.length === 1) {
+        const selected = beforeLsvSecond[0];
+        if (!Number.isFinite(selected.rs)) return { selected: null, first, second, error: `Cannot extract Rs from ${selected.file.name}.` };
         return { selected, first, second, error: null };
       }
-      if (second.length) {
-        return { selected: null, first, second, error: `Only post-test second GEIS file(s) found. A pre-test second GEIS (02 / 200 mA) is required.` };
+      if (afterLsvSecond.length) {
+        return { selected: null, first, second, error: "Only after-LSV 02 GEIS found. Add the before-LSV 02 / 200 mA GEIS." };
       }
-      return { selected: null, first, second, error: "Second GEIS file (02 / 200 mA) was not found or could not be identified from its filename." };
+      return { selected: null, first, second, error: "Before-LSV 02 / 200 mA GEIS not found or not recognised." };
     }
 
     function chooseGeis(files) {
@@ -364,9 +371,10 @@
       $("lineCount").textContent = `(${lines.length})`;
       $("legendSettings").innerHTML = lines.length ? lines.map((config, index) => {
         const style = config;
-        const geis = chooseGeis(state.materials.get(config.material) || []);
+        const geisSelection = getGeisSelection(state.materials.get(config.material) || []);
+        const geis = geisSelection.selected;
         return `<div class="legend-row">
-          <span>${config.material}<small>${geis ? `Second GEIS: ${geis.file.name} · Rs ${geis.rs.toPrecision(6)} Ω` : "Pre-test second GEIS (02 / 200 mA) not available"}</small></span>
+          <span>${config.material}<small>${geis ? `Before-LSV second GEIS: ${geis.file.name} · Rs ${geis.rs.toPrecision(6)} Ω` : `iR unavailable: ${geisSelection.error}`}</small></span>
           <input data-style="label" data-index="${index}" value="${style.label.replaceAll('"', '&quot;')}" placeholder="Legend name" aria-label="Legend label for ${config.material}">
           <select data-style="lineStyle" data-index="${index}" aria-label="Line style for ${config.material}">
             <option value="solid" ${style.lineStyle === "solid" ? "selected" : ""}>Solid</option>
@@ -485,9 +493,18 @@
         return;
       }
       panel.hidden = false;
-      list.innerHTML = state.issues.map(issue => {
-        const scope = [issue.material, issue.file].filter(Boolean).join(" · ");
-        return `<li class="issue-${issue.level}"><strong style="display:inline">${issue.level === "error" ? "Error" : "Warning"}:</strong> ${scope ? `${scope}: ` : ""}${issue.message}</li>`;
+      const groups = new Map();
+      state.issues.forEach(issue => {
+        const material = issue.material || "General";
+        if (!groups.has(material)) groups.set(material, { error: [], warning: [] });
+        groups.get(material)[issue.level].push(issue);
+      });
+      list.innerHTML = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([material, levels]) => {
+        const section = (level, title) => levels[level].length ? `<div class="issue-section">
+          <strong class="issue-heading issue-${level}">${title} (${levels[level].length})</strong>
+          <ul>${levels[level].map(issue => `<li>${issue.file ? `<strong>${issue.file}:</strong> ` : ""}${issue.message}</li>`).join("")}</ul>
+        </div>` : "";
+        return `<li class="issue-group"><strong class="issue-material">Material: ${material}</strong>${section("error", "Errors")}${section("warning", "Warnings")}</li>`;
       }).join("");
     }
 
@@ -498,33 +515,33 @@
         const geisSelection = getGeisSelection(files);
         if (geisSelection.error) addIssue("error", material, null, geisSelection.error);
         const unidentifiedGeis = files.filter(item => item.kind === "geis" && geisOrdinal(item.file) == null).map(item => item.file.name);
-        if (unidentifiedGeis.length) addIssue("warning", material, null, `GEIS measurement number could not be identified: ${unidentifiedGeis.join(", ")}. Use 01/02 before GEIS or include 200 mA for the second GEIS.`);
+        if (unidentifiedGeis.length) addIssue("warning", material, null, `GEIS number not recognised: ${unidentifiedGeis.join(", ")}. Use 01/02 before GEIS or include 200 mA.`);
         if (geisSelection.selected?.invalidRowCount) {
-          addIssue("warning", material, geisSelection.selected.file.name, `${geisSelection.selected.invalidRowCount} GEIS row${geisSelection.selected.invalidRowCount === 1 ? " was" : "s were"} ignored because Re(Z) or −Im(Z) could not be parsed.`);
+          addIssue("warning", material, geisSelection.selected.file.name, `${geisSelection.selected.invalidRowCount} GEIS row${geisSelection.selected.invalidRowCount === 1 ? "" : "s"} skipped: invalid Re(Z) or −Im(Z).`);
         }
         if ((geisSelection.selected?.rsCandidates?.length || 0) > 1) {
-          addIssue("warning", material, geisSelection.selected.file.name, `Multiple positive −Im(Z) regions were found. Rs = ${geisSelection.selected.rs.toPrecision(6)} Ω was selected as the smallest positive Re(Z) crossing candidate.`);
+          addIssue("warning", material, geisSelection.selected.file.name, `Multiple positive −Im(Z) regions. Using the smallest positive crossing: Rs = ${geisSelection.selected.rs.toPrecision(6)} Ω.`);
         }
         const missingOrder = ivItems.filter(item => item.orderFromName == null).map(item => item.file.name);
-        if (missingOrder.length) addIssue("warning", material, null, `Order number missing in ${missingOrder.join(", ")}. Plotting is unaffected because IV files are connected by filename current.`);
+        if (missingOrder.length) addIssue("warning", material, null, `Order number missing: ${missingOrder.join(", ")}. Sorted by filename current.`);
         const orderGroups = new Map();
         ivItems.filter(item => item.orderFromName != null).forEach(item => {
           if (!orderGroups.has(item.orderFromName)) orderGroups.set(item.orderFromName, []);
           orderGroups.get(item.orderFromName).push(item.file.name);
         });
         [...orderGroups.entries()].filter(([, names]) => names.length > 1).forEach(([order, names]) =>
-          addIssue("warning", material, null, `Duplicate order number ${order}: ${names.join(", ")}. Plotting is unaffected because IV files are connected by filename current.`)
+          addIssue("warning", material, null, `Duplicate order ${order}: ${names.join(", ")}. Sorted by filename current.`)
         );
         const uniqueOrders = [...orderGroups.keys()].sort((a, b) => a - b);
         const missingSequence = [];
         for (let index = 1; index < uniqueOrders.length; index += 1) {
           for (let value = uniqueOrders[index - 1] + 1; value < uniqueOrders[index]; value += 1) missingSequence.push(value);
         }
-        if (missingSequence.length) addIssue("warning", material, null, `Order-number sequence has gaps: ${missingSequence.join(", ")}. Plotting is unaffected because IV files are connected by filename current.`);
+        if (missingSequence.length) addIssue("warning", material, null, `Missing order number${missingSequence.length === 1 ? "" : "s"}: ${missingSequence.join(", ")}. Sorted by filename current.`);
         ivItems.forEach(item => {
-          if (!item.points.length) addIssue("error", material, item.file.name, "No valid non-zero-current CSV rows were found.");
-          else if (!last30Stats(item)) addIssue("error", material, item.file.name, "The final 30-second average could not be calculated.");
-          if (item.invalidRowCount) addIssue("warning", material, item.file.name, `${item.invalidRowCount} row${item.invalidRowCount === 1 ? " was" : "s were"} ignored because time, voltage, or current could not be parsed.`);
+          if (!item.points.length) addIssue("error", material, item.file.name, "No valid non-zero-current rows.");
+          else if (!last30Stats(item)) addIssue("error", material, item.file.name, "Cannot calculate the final-30-s average.");
+          if (item.invalidRowCount) addIssue("warning", material, item.file.name, `${item.invalidRowCount} row${item.invalidRowCount === 1 ? "" : "s"} skipped: invalid time, voltage, or current.`);
         });
         const currentGroups = new Map();
         ivItems.forEach(item => {
@@ -533,12 +550,12 @@
           currentGroups.get(key).push(item.file.name);
         });
         [...currentGroups.entries()].filter(([, names]) => names.length > 1).forEach(([current, names]) =>
-          addIssue("warning", material, null, `Duplicate filename current ${current} A: ${names.join(", ")}.`)
+          addIssue("warning", material, null, `Duplicate filename current (${current} A): ${names.join(", ")}.`)
         );
       }
       holdItems.forEach(item => {
-        if (!item.points.length) addIssue("error", material, item.file.name, "No valid non-zero-current Hold rows were found.");
-        if (item.invalidRowCount) addIssue("warning", material, item.file.name, `${item.invalidRowCount} Hold row${item.invalidRowCount === 1 ? " was" : "s were"} ignored because time, voltage, or current could not be parsed.`);
+        if (!item.points.length) addIssue("error", material, item.file.name, "No valid non-zero-current Hold rows.");
+        if (item.invalidRowCount) addIssue("warning", material, item.file.name, `${item.invalidRowCount} Hold row${item.invalidRowCount === 1 ? "" : "s"} skipped: invalid time, voltage, or current.`);
       });
     }
 
@@ -568,25 +585,25 @@
           const kind = typeOf(file);
           const material = materialName(file);
           if (kind === "break") {
-            addIssue("warning", material, file.name, "Break file was ignored as requested.");
+            addIssue("warning", material, file.name, "Break file ignored.");
             continue;
           }
           if (kind === "iv") {
             const parsedName = parseIvName(file);
             if (!parsedName.valid) {
-              addIssue("error", material, file.name, `IV filename could not be processed. ${parsedName.reason}`);
+              addIssue("error", material, file.name, `Invalid IV filename. ${parsedName.reason}`);
               continue;
             }
           }
           if (kind === "other") {
-            addIssue("warning", material, file.name, "Unsupported file type was ignored.");
+            addIssue("warning", material, file.name, "Unsupported file ignored.");
             continue;
           }
           if (!state.materials.has(material)) state.materials.set(material, []);
           try {
             state.materials.get(material).push(await parseFile(file));
           } catch (error) {
-            addIssue("error", material, file.name, `File could not be read. ${error.message}`);
+            addIssue("error", material, file.name, `Cannot read file. ${error.message}`);
           }
         }
         state.materials.forEach((materialFiles, material) => validateMaterial(material, materialFiles));
