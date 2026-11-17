@@ -181,6 +181,7 @@
           <div class="data-file-settings">
             <div><label for="nextDataType">Data type</label><select id="nextDataType" disabled><option value="iv">IV curve</option><option value="hold">CP / Hold</option></select></div>
             <div><label for="nextDataFile">Data file</label><select id="nextDataFile" disabled><option value="">Select a data type first</option></select></div>
+            <div id="nextGeisSetting"><label for="nextGeisFile">GEIS for iR correction</label><select id="nextGeisFile" disabled><option value="">No GEIS detected</option></select></div>
           </div>
           <div class="next-line-settings">
             <div><label for="nextLegend">Legend name</label><input id="nextLegend" placeholder="Legend name" disabled /></div>
@@ -251,7 +252,7 @@
     </div>
   </main>
 
-  <script src="flowcell-importer.js?v=20261117-3"></script>
+  <script src="flowcell-importer.js?v=20261117-4"></script>
   <script>
     const ELECTRODE_AREA_CM2 = 5;
     const state = { materials: new Map(), selected: [], styles: new Map(), lineConfigs: [], issues: [], importIssues: [], skippedImportIssues: [], pendingFiles: [], importConfigs: [] };
@@ -345,6 +346,21 @@
       return getGeisSelection(files).selected;
     }
 
+    function geisChoices(material) {
+      const files = state.materials.get(material) || [];
+      return files.filter(item => item.kind === "geis" && geisOrdinal(item.file) === 2 && !/after|post[\s_-]*(?:current[\s_-]*test|lsv)/i.test(item.file.name))
+        .map(item => ({ value: `file:${item.file.name}`, label: `${item.file.name}${Number.isFinite(item.rs) ? ` · Rs ${item.rs.toPrecision(6)} Ω` : " · Rs unavailable"}` }));
+    }
+
+    function geisForConfig(config) {
+      const files = state.materials.get(config.material) || [];
+      if (config.geisSelection?.startsWith("file:")) {
+        const name = config.geisSelection.slice(5);
+        return files.find(item => item.kind === "geis" && item.file.name === name) || null;
+      }
+      return getGeisSelection(files).selected;
+    }
+
     function extractRs(points) {
       const positiveRegions = [];
       let region = [];
@@ -409,7 +425,8 @@
     function filesForLineConfig(config) {
       const all = state.materials.get(config.material) || [];
       return all.filter(item => {
-        if (["geis", "peis"].includes(item.kind)) return true;
+        if (item.kind === "geis") return config.dataType === "iv" && config.geisSelection === `file:${item.file.name}`;
+        if (item.kind === "peis") return false;
         if (item.kind === "iv") {
           if (config.dataType !== "iv") return false;
           if (config.dataSelection === "steps") return item.ivMode !== "trace";
@@ -444,6 +461,26 @@
         .map(config => config.dataSelection)
         .filter(Boolean));
       populateDataFileSelect(choices, kind === "iv" ? "No IV data" : "No CP / Hold data", usedFiles);
+      syncNextGeisFile();
+    }
+
+    function syncNextGeisFile() {
+      const material = $("materialSelect").value;
+      const kind = $("nextDataType").value;
+      const wrapper = $("nextGeisSetting");
+      const select = $("nextGeisFile");
+      wrapper.hidden = kind !== "iv";
+      if (!material || kind !== "iv") {
+        select.innerHTML = '<option value="">Not used for CP / Hold</option>';
+        select.value = "";
+        select.disabled = true;
+        return;
+      }
+      const choices = geisChoices(material);
+      select.innerHTML = `<option value="">No GEIS / raw voltage only</option>${choices.map(choice => `<option value="${escapeHtml(choice.value)}">${escapeHtml(choice.label)}</option>`).join("")}`;
+      const automatic = getGeisSelection(state.materials.get(material) || []).selected;
+      select.value = automatic ? `file:${automatic.file.name}` : "";
+      select.disabled = false;
     }
 
     function syncNextLineSettings() {
@@ -467,9 +504,8 @@
       $("lineCount").textContent = `(${lines.length})`;
       $("legendSettings").innerHTML = lines.length ? lines.map((config, index) => {
         const style = config;
-        const geisSelection = getGeisSelection(state.materials.get(config.material) || []);
-        const geis = geisSelection.selected;
-        const correctionNote = !$("applyIR").checked ? "iR correction off" : geis ? `Before-LSV second GEIS: ${geis.file.name} · Rs ${geis.rs.toPrecision(6)} Ω` : `iR unavailable: ${geisSelection.error}`;
+        const geis = geisForConfig(config);
+        const correctionNote = config.dataType !== "iv" ? "GEIS not used for CP / Hold" : !$("applyIR").checked ? `iR correction off${geis ? ` · paired GEIS: ${geis.file.name}` : " · no GEIS paired"}` : geis && Number.isFinite(geis.rs) ? `GEIS: ${geis.file.name} · Rs ${geis.rs.toPrecision(6)} Ω` : "iR unavailable: select a valid 02 / 200 mA GEIS";
         const selectedType = config.dataType === "iv" ? "IV" : "CP / Hold";
         const selectedFile = config.dataSelection === "steps" ? "Stepped IV" : config.dataSelection.replace(/^file:/, "");
         return `<div class="legend-row">
@@ -629,16 +665,8 @@
       const holdItems = files.filter(item => item.kind === "hold");
       if (ivItems.length) {
         if ($("applyIR").checked) {
-          const geisSelection = getGeisSelection(files);
-          if (geisSelection.error) addIssue("error", material, null, geisSelection.error);
           const unidentifiedGeis = files.filter(item => item.kind === "geis" && geisOrdinal(item.file) == null).map(item => item.file.name);
           if (unidentifiedGeis.length) addIssue("warning", material, null, `GEIS number not recognised: ${unidentifiedGeis.join(", ")}. Use 01/02 before GEIS or include 200 mA.`);
-          if (geisSelection.selected?.invalidRowCount) {
-            addIssue("warning", material, geisSelection.selected.file.name, `${geisSelection.selected.invalidRowCount} GEIS row${geisSelection.selected.invalidRowCount === 1 ? "" : "s"} skipped: invalid Re(Z) or −Im(Z).`);
-          }
-          if ((geisSelection.selected?.rsCandidates?.length || 0) > 1) {
-            addIssue("warning", material, geisSelection.selected.file.name, `Multiple positive −Im(Z) regions. Using the smallest positive crossing: Rs = ${geisSelection.selected.rs.toPrecision(6)} Ω.`);
-          }
         }
         const missingOrder = steppedIvItems.filter(item => item.orderFromName == null).map(item => item.file.name);
         if (missingOrder.length) addIssue("warning", material, null, `Order number missing: ${missingOrder.join(", ")}. Sorted by filename current.`);
@@ -680,6 +708,17 @@
     function rebuildIssues() {
       state.issues = state.importIssues.map(issue => ({ ...issue }));
       state.materials.forEach((materialFiles, material) => validateMaterial(material, materialFiles));
+      if ($("applyIR").checked) {
+        state.lineConfigs.filter(config => config.dataType === "iv").forEach(config => {
+          const geis = geisForConfig(config);
+          if (!geis) addIssue("error", config.material, null, `No GEIS selected for ${config.label}.`);
+          else if (!Number.isFinite(geis.rs)) addIssue("error", config.material, geis.file.name, "Cannot extract Rs.");
+          else {
+            if (geis.invalidRowCount) addIssue("warning", config.material, geis.file.name, `${geis.invalidRowCount} invalid GEIS row${geis.invalidRowCount === 1 ? "" : "s"} skipped.`);
+            if ((geis.rsCandidates?.length || 0) > 1) addIssue("warning", config.material, geis.file.name, `Multiple crossings. Using smallest positive Rs: ${geis.rs.toPrecision(6)} Ω.`);
+          }
+        });
+      }
       renderIssues();
     }
 
@@ -693,10 +732,11 @@
       $("nextLineStyle").disabled = false;
       $("nextDataType").disabled = false;
       $("nextDataFile").disabled = false;
+      syncNextGeisFile();
     }
 
     function disableLoadedControls() {
-      ["materialSelect", "drawButton", "addLine", "clearSelection", "nextLegend", "nextColor", "nextLineStyle", "nextDataType", "nextDataFile"].forEach(id => $(id).disabled = true);
+      ["materialSelect", "drawButton", "addLine", "clearSelection", "nextLegend", "nextColor", "nextLineStyle", "nextDataType", "nextDataFile", "nextGeisFile"].forEach(id => $(id).disabled = true);
     }
 
     function setStatus(message, error = false) {
@@ -855,8 +895,13 @@
       const material = $("materialSelect").value;
       const dataType = $("nextDataType").value;
       const dataSelection = $("nextDataFile").value;
+      const geisSelection = dataType === "iv" ? $("nextGeisFile").value : "";
       if (!material || !dataType || !dataSelection) {
         setStatus("Select a material, data type, and data file.", true);
+        return;
+      }
+      if (dataType === "iv" && $("applyIR").checked && !geisSelection) {
+        setStatus("Select a GEIS file for iR correction, or turn iR correction off.", true);
         return;
       }
       if (state.lineConfigs.some(config => config.material === material && config.dataType === dataType && config.dataSelection === dataSelection)) {
@@ -873,6 +918,7 @@
         material,
         dataType,
         dataSelection,
+        geisSelection,
         label,
         color: $("nextColor").value,
         lineStyle: $("nextLineStyle").value,
@@ -962,7 +1008,7 @@
         name: config.material,
         style: config,
         files: filesForLineConfig(config),
-      })).map(group => ({ ...group, geis: chooseGeis(group.files) }));
+      })).map(group => ({ ...group, geis: geisForConfig(group.style) }));
       const rows = [];
 
       if (kind === "iv") {
@@ -1014,7 +1060,7 @@
         name: config.material,
         style: config,
         files: filesForLineConfig(config),
-      })).map(group => ({ ...group, geis: chooseGeis(group.files) }));
+      })).map(group => ({ ...group, geis: geisForConfig(group.style) }));
       state.selected = groups.map(group => group.name);
       $("ivMethodNote").textContent = `Last 30 seconds · ${ELECTRODE_AREA_CM2} cm² · ${$("applyIR").checked ? "iR corrected" : "raw voltage"}`;
       renderSummary(groups);
