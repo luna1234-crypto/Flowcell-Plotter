@@ -281,17 +281,24 @@
 
     function typeOf(file) {
       const name = file.name.toLowerCase();
+      if (/[_\s-](?:raw|processed)(?:\.csv)?$/i.test(name) || /_processing\.json$/i.test(name)) return "other";
       if (name.includes("break")) return "break";
       if (name.includes("hold")) return "hold";
       if (name.endsWith(".txt") && name.includes("geis")) return "geis";
       if (name.endsWith(".txt") && name.includes("peis")) return "peis";
-      return name.endsWith(".csv") ? "iv" : "other";
+      if (name.endsWith(".csv")) {
+        if (/[\s_-]readable\.csv$/i.test(name)) return "iv";
+        if (/(?:^|[\s_-])\d+\s*(?:h|hr|hour)s?\s*cp(?:[\s_.-]|$)/i.test(name)) return "hold";
+        if (/\blsv\b/i.test(name)) return "other";
+        if (parseIvName(file).valid) return "iv";
+      }
+      return "other";
     }
 
     function parseIvName(file) {
       const name = file.name.trim();
       if (!/\.csv$/i.test(name)) return { valid: false, reason: "File extension is not CSV." };
-      const stem = name.replace(/\.csv$/i, "");
+      const stem = name.replace(/\.csv$/i, "").replace(/[\s_-]*readable\s*$/i, "");
       const currentMatch = stem.match(/([0-9]+(?:\.[0-9]+)?)\s*a\s*$/i);
       if (!currentMatch) return { valid: false, reason: "Current and unit A were not found at the end of the filename." };
       const current = Number(currentMatch[1]);
@@ -434,12 +441,16 @@
         if (Math.abs(point.current) === 0) { zeroCurrentRowCount += 1; return false; }
         return true;
       });
-      const filename = typeOf(file) === "iv" ? parseIvName(file) : { valid: true, current: null, order: sequenceNumber(file) === 999999 ? null : sequenceNumber(file) };
+      const parsedIvName = typeOf(file) === "iv" ? parseIvName(file) : { valid: false };
+      const filename = parsedIvName.valid
+        ? parsedIvName
+        : { valid: true, current: null, order: sequenceNumber(file) === 999999 ? null : sequenceNumber(file) };
       return {
         file,
         kind: typeOf(file),
         currentFromName: filename.current,
         orderFromName: filename.order,
+        ivMode: typeOf(file) === "iv" && parsedIvName.valid ? "step" : "trace",
         points,
         tracePoints: normalized.source === FlowcellImporter.SOURCE_TEST_BRIDGE
           ? normalized.voltageSeries
@@ -490,7 +501,7 @@
       const stats = last30Stats(item);
       if (!stats) return null;
       const rs = applyIR && Number.isFinite(geis?.rs) ? geis.rs : null;
-      const appliedCurrentDensity = item.currentFromName / ELECTRODE_AREA_CM2;
+      const appliedCurrentDensity = Number.isFinite(item.currentFromName) ? item.currentFromName / ELECTRODE_AREA_CM2 : null;
       const averageCurrentDensity = stats.averageCurrent / ELECTRODE_AREA_CM2;
       const irDrop = rs == null ? null : stats.averageCurrent * rs;
       return {
@@ -536,6 +547,7 @@
 
     function validateMaterial(material, files) {
       const ivItems = files.filter(item => item.kind === "iv");
+      const steppedIvItems = ivItems.filter(item => item.ivMode !== "trace");
       const holdItems = files.filter(item => item.kind === "hold");
       if (ivItems.length) {
         if ($("applyIR").checked) {
@@ -550,10 +562,10 @@
             addIssue("warning", material, geisSelection.selected.file.name, `Multiple positive −Im(Z) regions. Using the smallest positive crossing: Rs = ${geisSelection.selected.rs.toPrecision(6)} Ω.`);
           }
         }
-        const missingOrder = ivItems.filter(item => item.orderFromName == null).map(item => item.file.name);
+        const missingOrder = steppedIvItems.filter(item => item.orderFromName == null).map(item => item.file.name);
         if (missingOrder.length) addIssue("warning", material, null, `Order number missing: ${missingOrder.join(", ")}. Sorted by filename current.`);
         const orderGroups = new Map();
-        ivItems.filter(item => item.orderFromName != null).forEach(item => {
+        steppedIvItems.filter(item => item.orderFromName != null).forEach(item => {
           if (!orderGroups.has(item.orderFromName)) orderGroups.set(item.orderFromName, []);
           orderGroups.get(item.orderFromName).push(item.file.name);
         });
@@ -572,7 +584,7 @@
           if (item.invalidRowCount) addIssue("warning", material, item.file.name, `${item.invalidRowCount} row${item.invalidRowCount === 1 ? "" : "s"} skipped: invalid time, voltage, or current.`);
         });
         const currentGroups = new Map();
-        ivItems.forEach(item => {
+        steppedIvItems.forEach(item => {
           const key = item.currentFromName;
           if (!currentGroups.has(key)) currentGroups.set(key, []);
           currentGroups.get(key).push(item.file.name);
@@ -633,7 +645,10 @@
 
     function renderImportReview() {
       const body = $("importReviewBody");
-      body.innerHTML = state.importConfigs.map((config, index) => {
+      const visibleConfigs = state.importConfigs.map((config, index) => ({ config, index }))
+        .filter(({ config }) => !importConfigReady(config) || config.processError);
+      $("importReview").hidden = visibleConfigs.length === 0;
+      body.innerHTML = visibleConfigs.map(({ config, index }) => {
         const detected = FlowcellImporter.sourceLabel(config.inspection.detectedSource);
         const duplicateError = config.inspection.duplicateHeaders.length ? `Duplicated headers: ${config.inspection.duplicateHeaders.join(", ")}.` : "";
         const readyMessage = config.source === FlowcellImporter.SOURCE_TEST_BRIDGE
@@ -669,11 +684,23 @@
     }
 
     async function prepareImports(files) {
-      state.pendingFiles = files;
+      const candidates = files.filter(file => typeOf(file) !== "other");
+      state.pendingFiles = [];
       state.importConfigs = [];
-      for (const file of files.filter(item => /\.csv$/i.test(item.name))) {
+      for (const file of candidates) {
+        if (!/\.csv$/i.test(file.name) || typeOf(file) === "break") {
+          state.pendingFiles.push(file);
+          continue;
+        }
         const text = await file.text();
         const inspection = FlowcellImporter.inspectCsv(text);
+        const normalizedHeaders = inspection.headers.map(FlowcellImporter.normalizedHeader);
+        const isNewSoftwareRaw = normalizedHeaders.includes("timestamp iso")
+          && normalizedHeaders.includes("elapsed seconds")
+          && normalizedHeaders.includes("measured voltage v")
+          && normalizedHeaders.includes("measured current a");
+        if (isNewSoftwareRaw) continue;
+        state.pendingFiles.push(file);
         state.importConfigs.push({
           file,
           kind: typeOf(file),
@@ -684,7 +711,6 @@
           processError: null,
         });
       }
-      $("importReview").hidden = state.importConfigs.length === 0;
       renderImportReview();
     }
 
@@ -703,7 +729,7 @@
           }
           if (kind === "iv") {
             const parsedName = parseIvName(file);
-            if (!parsedName.valid) {
+            if (!parsedName.valid && !/[\s_-]readable\.csv$/i.test(file.name)) {
               state.importIssues.push({ level: "error", material, file: file.name, message: `Invalid IV filename. ${parsedName.reason}` });
               continue;
             }
@@ -758,9 +784,14 @@
       try {
         setStatus("Detecting source formats and columns…");
         await prepareImports(files);
-        const certain = state.importConfigs.filter(config => config.inspection.confidence === "certain").length;
+        const certain = state.importConfigs.filter(importConfigReady).length;
         const uncertain = state.importConfigs.length - certain;
-        setStatus(`${state.importConfigs.length} CSV file${state.importConfigs.length === 1 ? "" : "s"} inspected: ${certain} detected, ${uncertain} need${uncertain === 1 ? "s" : ""} review. Confirm mappings, then process files.`, uncertain > 0);
+        if (uncertain === 0) {
+          await processPendingImports();
+        } else {
+          const materials = [...new Set(state.importConfigs.filter(config => !importConfigReady(config)).map(config => materialName(config.file)))];
+          setStatus(`${certain} data file${certain === 1 ? "" : "s"} detected automatically. Review ${uncertain} uncertain file${uncertain === 1 ? "" : "s"} in: ${materials.join(", ")}.`, true);
+        }
       } catch (error) {
         console.error(error);
         setStatus(`Could not inspect imports: ${error.message}`, true);
@@ -875,7 +906,7 @@
           group.files.filter(item => item.kind === "iv")
             .map(item => ({ item, result: ivResult(item, group.geis, $("applyIR").checked) }))
             .filter(entry => entry.result)
-            .sort((a, b) => a.result.appliedCurrent - b.result.appliedCurrent || (a.item.orderFromName ?? Infinity) - (b.item.orderFromName ?? Infinity))
+            .sort((a, b) => (a.result.appliedCurrent ?? Infinity) - (b.result.appliedCurrent ?? Infinity) || (a.item.orderFromName ?? Infinity) - (b.item.orderFromName ?? Infinity))
             .forEach(({ item, result }) => {
             rows.push([
               group.style.label,
@@ -1020,15 +1051,24 @@
       const applyIR = $("applyIR").checked;
       for (const group of groups) {
         const points = [];
-        const items = group.files.filter(item => item.kind === "iv")
+        const stepItems = group.files.filter(item => item.kind === "iv" && item.ivMode !== "trace")
           .map(item => ({ item, result: ivResult(item, group.geis, applyIR) }))
           .filter(entry => entry.result)
           .sort((a, b) => a.result.appliedCurrent - b.result.appliedCurrent || (a.item.orderFromName ?? Infinity) - (b.item.orderFromName ?? Infinity));
-        for (const { result } of items) {
+        for (const { result } of stepItems) {
           if (applyIR && result.correctedVoltage == null) continue;
           points.push({ x: result.averageCurrentDensity, y: applyIR ? result.correctedVoltage : result.rawVoltage });
         }
         if (points.length) series.push({ points, label: group.style.label, color: group.style.color, lineStyle: group.style.lineStyle, markers: true });
+        const traceItems = group.files.filter(item => item.kind === "iv" && item.ivMode === "trace");
+        traceItems.forEach(item => {
+          if (applyIR && !Number.isFinite(group.geis?.rs)) return;
+          const trace = item.points.map(point => ({
+            x: point.current / ELECTRODE_AREA_CM2,
+            y: applyIR ? point.voltage - point.current * group.geis.rs : point.voltage,
+          }));
+          if (trace.length) series.push({ points: trace, label: group.style.label, color: group.style.color, lineStyle: group.style.lineStyle, markers: false });
+        });
       }
       if (!series.length) { showChart("ivChart", "ivEmpty", false); return; }
       showChart("ivChart", "ivEmpty", true);
@@ -1061,9 +1101,9 @@
       empty.hidden = true;
       table.querySelector("tbody").innerHTML = rows.map(row => `<tr>
         <td>${row.material}</td>
-        <td>${row.appliedCurrent.toFixed(6)}</td>
+        <td>${row.appliedCurrent == null ? "n.a." : row.appliedCurrent.toFixed(6)}</td>
         <td>${row.averageCurrent.toFixed(6)}</td>
-        <td>${row.appliedCurrentDensity.toFixed(6)}</td>
+        <td>${row.appliedCurrentDensity == null ? "n.a." : row.appliedCurrentDensity.toFixed(6)}</td>
         <td>${row.averageCurrentDensity.toFixed(6)}</td>
         <td>${row.rawVoltage.toFixed(6)}</td>
         <td>${row.rs == null ? "n.a." : row.rs.toFixed(6)}</td>
@@ -1118,20 +1158,21 @@
 
     function drawLegend(ctx, series, width, height, margins, xMap, yMap) {
       if (series.length < 1 || !$("showLegend").checked) return;
+      const legendSeries = series.filter((line, index) => series.findIndex(candidate => candidate.label === line.label) === index);
       const availableWidth = width - margins.left - margins.right - 24;
       let fontSize = 16;
       const availableHeight = height - margins.top - margins.bottom - 16;
       let rowHeight = fontSize + 6;
       ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
-      const longestLabel = () => Math.max(...series.map(line => ctx.measureText(line.label).width));
-      while ((longestLabel() + 48 > availableWidth || series.length * rowHeight + 14 > availableHeight) && fontSize > 10) {
+      const longestLabel = () => Math.max(...legendSeries.map(line => ctx.measureText(line.label).width));
+      while ((longestLabel() + 48 > availableWidth || legendSeries.length * rowHeight + 14 > availableHeight) && fontSize > 10) {
         fontSize -= 1;
         rowHeight = fontSize + 6;
         ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
       }
       const boxPadding = 7;
       const boxWidth = Math.min(availableWidth, Math.max(140, longestLabel() + 48));
-      const boxHeight = Math.min(series.length * rowHeight + boxPadding * 2, height - margins.top - margins.bottom - 16);
+      const boxHeight = Math.min(legendSeries.length * rowHeight + boxPadding * 2, height - margins.top - margins.bottom - 16);
       const gap = 12;
       const candidates = {
         "top-right": [width - margins.right - boxWidth, margins.top + gap],
@@ -1161,7 +1202,7 @@
       ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
       ctx.textBaseline = "middle";
       ctx.textAlign = "left";
-      series.forEach((line, index) => {
+      legendSeries.forEach((line, index) => {
         const rowY = y + boxPadding + rowHeight / 2 + index * rowHeight;
         ctx.strokeStyle = line.color;
         ctx.lineWidth = 2;
