@@ -133,6 +133,7 @@
     .chart-note { color: var(--muted); font-size: 12px; }
     .chart-local-settings { margin-top: 18px; }
     .chart-local-settings .settings-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .chart-local-settings .plot-title-setting { grid-column: 1 / -1; }
     canvas { width: 100%; height: auto; aspect-ratio: 4 / 3; display: block; }
     .empty { min-height: 420px; display: grid; place-items: center; color: var(--muted); font-size: 15px; text-align: center; padding: 30px; }
     .table-panel { margin-top: 18px; padding: 20px 22px; overflow-x: auto; }
@@ -203,10 +204,8 @@
     </section>
 
     <section class="panel settings">
-      <h2 class="section-title">Chart settings</h2>
+      <h2 class="section-title">General settings</h2>
       <div class="settings-grid">
-        <div><label for="ivTitle">IV title</label><input id="ivTitle" value="IV Curve" /></div>
-        <div><label for="holdTitle">Hold title</label><input id="holdTitle" value="Hold" /></div>
         <div><label for="legendPosition">Legend position</label><select id="legendPosition"><option value="best">Best</option><option value="top-right">Top right</option><option value="top-left">Top left</option><option value="bottom-right">Bottom right</option><option value="bottom-left">Bottom left</option></select></div>
       </div>
       <details open>
@@ -230,13 +229,13 @@
         <div class="chart-head"><h2>IV Curve</h2><div class="chart-actions"><span id="ivMethodNote" class="chart-note">Last 30 seconds · 5 cm² · raw voltage</span><button class="icon-button" type="button" data-save="ivChart" data-name="iv_curve" title="Save IV curve" aria-label="Save IV curve">↓</button><button class="icon-button" type="button" data-copy="ivChart" title="Copy IV curve" aria-label="Copy IV curve">⧉</button><button class="icon-button" type="button" data-csv="iv" title="Save IV CSV" aria-label="Save IV CSV">▤</button></div></div>
         <div id="ivEmpty" class="empty">Upload data to view the IV curve.</div>
         <canvas id="ivChart" hidden></canvas>
-        <details class="chart-local-settings"><summary>IV axis settings</summary><div class="settings-grid"><div><label for="ivXRange">X range</label><input id="ivXRange" data-chart-setting placeholder="Auto, e.g. 0,2" /></div><div><label for="ivYRange">Y range</label><input id="ivYRange" data-chart-setting placeholder="Auto, e.g. 1,2.5" /></div><div><label for="ivXTick">X interval</label><input id="ivXTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div><div><label for="ivYTick">Y interval</label><input id="ivYTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div></div></details>
+        <details class="chart-local-settings"><summary>IV plot settings</summary><div class="settings-grid"><div class="plot-title-setting"><label for="ivTitle">Plot title</label><input id="ivTitle" value="IV Curve" /></div><div><label for="ivXRange">X range</label><input id="ivXRange" data-chart-setting placeholder="Auto, e.g. 0,2" /></div><div><label for="ivYRange">Y range</label><input id="ivYRange" data-chart-setting placeholder="Auto, e.g. 1,2.5" /></div><div><label for="ivXTick">X interval</label><input id="ivXTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div><div><label for="ivYTick">Y interval</label><input id="ivYTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div></div></details>
       </article>
       <article class="panel chart-card">
         <div class="chart-head"><h2>Hold</h2><div class="chart-actions"><span class="chart-note">Voltage vs time</span><button class="icon-button" type="button" data-save="holdChart" data-name="hold_voltage_time" title="Save hold chart" aria-label="Save hold chart">↓</button><button class="icon-button" type="button" data-copy="holdChart" title="Copy hold chart" aria-label="Copy hold chart">⧉</button><button class="icon-button" type="button" data-csv="hold" title="Save hold CSV" aria-label="Save hold CSV">▤</button></div></div>
         <div id="holdEmpty" class="empty">No hold file found.</div>
         <canvas id="holdChart" hidden></canvas>
-        <details class="chart-local-settings"><summary>Hold axis settings</summary><div class="settings-grid"><div><label for="holdXRange">X range</label><input id="holdXRange" data-chart-setting placeholder="Auto" /></div><div><label for="holdYRange">Y range</label><input id="holdYRange" data-chart-setting placeholder="Auto" /></div><div><label for="holdXTick">X interval</label><input id="holdXTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div><div><label for="holdYTick">Y interval</label><input id="holdYTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div></div></details>
+        <details class="chart-local-settings"><summary>CP / Hold plot settings</summary><div class="settings-grid"><div class="plot-title-setting"><label for="holdTitle">Plot title</label><input id="holdTitle" value="Hold" /></div><div><label for="holdXRange">X range</label><input id="holdXRange" data-chart-setting placeholder="Auto" /></div><div><label for="holdYRange">Y range</label><input id="holdYRange" data-chart-setting placeholder="Auto" /></div><div><label for="holdXTick">X interval</label><input id="holdXTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div><div><label for="holdYTick">Y interval</label><input id="holdYTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div></div></details>
       </article>
     </section>
 
