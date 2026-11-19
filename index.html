@@ -244,7 +244,7 @@
     </div>
   </main>
 
-  <script src="flowcell-importer.js?v=20261119-7"></script>
+  <script src="flowcell-importer.js?v=20261119-8"></script>
   <script>
     const ELECTRODE_AREA_CM2 = 5;
     const state = { materials: new Map(), selected: [], styles: new Map(), lineConfigs: [], issues: [], importIssues: [], skippedImportIssues: [], pendingFiles: [], importConfigs: [] };
@@ -748,7 +748,7 @@
 
     function importConfigReady(config) {
       if (config.kind === "break") return true;
-      if (config.inspection.duplicateHeaders.length) return false;
+      if (config.inspection.duplicateHeaders.length && !config.voltageOnly) return false;
       if (config.source === FlowcellImporter.SOURCE_QPX) {
         const currentValue = config.mapping.current ?? config.mapping.currentDensity;
         const indexes = [config.mapping.time, config.mapping.voltage, currentValue];
