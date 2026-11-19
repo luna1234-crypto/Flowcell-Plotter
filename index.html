@@ -121,8 +121,6 @@
     .import-detection { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
     .import-error { color: var(--danger); font-weight: 650; white-space: normal; min-width: 190px; }
     .import-ready { color: #2f6a47; font-weight: 650; }
-    .summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
-    .badge { border: 1px solid var(--line); background: var(--soft); color: var(--muted); border-radius: 999px; padding: 7px 11px; font-size: 13px; }
     .charts { display: grid; grid-template-columns: 1fr; gap: 18px; }
     .chart-card { padding: 24px; min-width: 0; }
     .chart-card.wide { grid-column: auto; }
@@ -206,8 +204,6 @@
       </aside>
 
       <section class="results">
-    <div id="summary" class="summary"></div>
-
     <section class="charts">
       <article class="panel chart-card wide">
         <div class="chart-head"><h2>IV Curve</h2><div class="chart-actions"><span id="ivMethodNote" class="chart-note">Last 30 seconds · 5 cm² · raw voltage</span><button class="icon-button" type="button" data-save="ivChart" data-name="iv_curve" title="Save IV curve" aria-label="Save IV curve">↓</button><button class="icon-button" type="button" data-copy="ivChart" title="Copy IV curve" aria-label="Copy IV curve">⧉</button><button class="icon-button" type="button" data-csv="iv" title="Save IV CSV" aria-label="Save IV CSV">▤</button></div></div>
@@ -244,7 +240,7 @@
     </div>
   </main>
 
-  <script src="flowcell-importer.js?v=20261119-8"></script>
+  <script src="flowcell-importer.js?v=20261119-9"></script>
   <script>
     const ELECTRODE_AREA_CM2 = 5;
     const state = { materials: new Map(), selected: [], styles: new Map(), lineConfigs: [], issues: [], importIssues: [], skippedImportIssues: [], pendingFiles: [], importConfigs: [] };
@@ -1097,22 +1093,10 @@
       })).map(group => ({ ...group, geis: geisForConfig(group.style) }));
       state.selected = groups.map(group => group.name);
       $("ivMethodNote").textContent = `Last 30 seconds · ${ELECTRODE_AREA_CM2} cm² · ${$("applyIR").checked ? "iR corrected" : "raw voltage"}`;
-      renderSummary(groups);
       renderIV(groups);
       renderIVTable(groups);
       renderSimpleIVTable(groups);
       renderTrace("hold", groups, "holdChart", "holdEmpty");
-    }
-
-    function renderSummary(groups) {
-      const iv = uniqueSelectedItems(groups, "iv");
-      const holds = uniqueSelectedItems(groups, "hold");
-      $("summary").innerHTML = [
-        `<span class="badge">Materials: ${groups.map(group => group.style.label).join(", ") || "None"}</span>`,
-        `<span class="badge">IV files: ${iv.length}</span>`,
-        `<span class="badge">Hold files: ${holds.length}</span>`,
-        ...groups.map(group => `<span class="badge">${group.style.label} · ${$("applyIR").checked ? `Rs: ${group.geis ? `${group.geis.rs.toPrecision(6)} Ω` : "second GEIS not found"}` : "iR correction off"}</span>`)
-      ].join("");
     }
 
     function showChart(canvasId, emptyId, visible) {
