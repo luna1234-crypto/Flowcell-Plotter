@@ -173,6 +173,7 @@
         <div>
           <label for="fileInput">Flowcell folder (contains material folders)</label>
           <input id="fileInput" type="file" webkitdirectory directory multiple accept=".csv,.CSV,.txt,.TXT" />
+          <p class="method-note">The new instrument software saves both <strong>readable</strong> and <strong>raw</strong> files. Flowcell Plotter uses the readable file and ignores raw files. Imported headers and raw values are read-only and are never edited.</p>
         </div>
         <div>
           <label for="materialSelect">Material for next line</label>
@@ -240,7 +241,7 @@
     </div>
   </main>
 
-  <script src="flowcell-importer.js?v=20261119-9"></script>
+  <script src="flowcell-importer.js?v=20261119-10"></script>
   <script>
     const ELECTRODE_AREA_CM2 = 5;
     const state = { materials: new Map(), selected: [], styles: new Map(), lineConfigs: [], issues: [], importIssues: [], skippedImportIssues: [], pendingFiles: [], importConfigs: [] };
@@ -921,6 +922,14 @@
     $("materialSelect").addEventListener("change", syncNextLineSettings);
     $("nextDataType").addEventListener("change", syncNextDataFile);
 
+    function conciseDataLabel(material, dataSelection, dataType) {
+      if (dataSelection === "steps") return "Stepped IV";
+      let label = dataSelection.replace(/^file:/, "").replace(/\.csv$/i, "");
+      if (label.toLowerCase().startsWith(material.toLowerCase())) label = label.slice(material.length);
+      label = label.replace(/[\s_.-]*readable\s*$/i, "").replace(/^[\s_.-]+|[\s_.-]+$/g, "").trim();
+      return label || (dataType === "iv" ? "IV trace" : "CP / Hold");
+    }
+
     $("addLine").addEventListener("click", () => {
       const material = $("materialSelect").value;
       const dataType = $("nextDataType").value;
@@ -939,7 +948,7 @@
         return;
       }
       const sameTypeCount = state.lineConfigs.filter(config => config.material === material && config.dataType === dataType).length;
-      const selectedFileLabel = dataSelection === "steps" ? "Stepped IV" : dataSelection.replace(/^file:/, "").replace(/\.csv$/i, "");
+      const selectedFileLabel = conciseDataLabel(material, dataSelection, dataType);
       const enteredLabel = $("nextLegend").value.trim();
       const label = sameTypeCount > 0 && (!enteredLabel || enteredLabel === material)
         ? `${material} · ${selectedFileLabel}`
