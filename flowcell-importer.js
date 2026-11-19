@@ -56,14 +56,16 @@
 
   function classifyHeader(value) {
     const header = normalizedHeader(value);
-    const isDensity = /density|cm\s*[-^]?\s*2|cm²/.test(header);
+    const isDensity = /density|cm\s*[-^]?\s*2|cm²|cm⁻²/.test(header);
     const elapsed = /\belapsed\b|\bduration\b/.test(header);
     const timeWord = /\btime\b|timestamp|datetime|date time/.test(header);
     const seconds = unitMatches(header, "s") || /\bsec(?:ond)?s?\b/.test(header);
     const timestamp = /timestamp|datetime|date time|time stamp/.test(header);
     const voltage = !isDensity && (/^volts?$/.test(header) || ((/\bvoltage\b|\bpotential\b/.test(header)) && unitMatches(header, "v")));
     const current = !isDensity && (/^(?:amps?|amperes?)$/.test(header) || (/\bcurrent\b/.test(header) && unitMatches(header, "a")));
-    return { elapsedTime: elapsed && timeWord && seconds, timestamp, genericTime: timeWord && !elapsed && !timestamp, voltage, current };
+    const currentDensity = isDensity && /\bcurrent\b/.test(header) && /(?:\ba\b|\bma\b|amp)/.test(header);
+    const currentDensityUnit = currentDensity && /\bma\b/.test(header) ? "mA/cm2" : currentDensity ? "A/cm2" : null;
+    return { elapsedTime: elapsed && timeWord && seconds, timestamp, genericTime: timeWord && !elapsed && !timestamp, voltage, current, currentDensity, currentDensityUnit };
   }
 
   function parseTimestamp(value) {
@@ -94,6 +96,7 @@
       genericTimeCandidates: classified.flatMap((item, index) => item.genericTime ? [index] : []),
       voltageCandidates: classified.flatMap((item, index) => item.voltage ? [index] : []),
       currentCandidates: classified.flatMap((item, index) => item.current ? [index] : []),
+      currentDensityCandidates: classified.flatMap((item, index) => item.currentDensity ? [index] : []),
     };
   }
 
@@ -102,10 +105,10 @@
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
       const candidates = rowClassification(row);
-      const hasSignal = candidates.voltageCandidates.length || candidates.currentCandidates.length || candidates.elapsedCandidates.length || candidates.timestampCandidates.length;
+      const hasSignal = candidates.voltageCandidates.length || candidates.currentCandidates.length || candidates.currentDensityCandidates.length || candidates.elapsedCandidates.length || candidates.timestampCandidates.length;
       if (fallback < 0 && hasSignal) fallback = index;
       else if (fallback < 0 && !isCommentRow(row) && row.length >= 3) fallback = index;
-      if (hasSignal && candidates.voltageCandidates.length && candidates.currentCandidates.length
+      if (hasSignal && candidates.voltageCandidates.length && (candidates.currentCandidates.length || candidates.currentDensityCandidates.length)
         && (candidates.elapsedCandidates.length || candidates.timestampCandidates.length || candidates.genericTimeCandidates.length)) return index;
     }
     return fallback;
@@ -122,7 +125,7 @@
     if (headerRowIndex < 0) {
       return {
         headers: [], rows: [], allRows, metadataRows: allRows.filter(isCommentRow), headerRowIndex: null,
-        detectedSource: null, mapping: { time: null, voltage: null, currentTime: null, current: null },
+        detectedSource: null, mapping: { time: null, voltage: null, currentTime: null, current: null, currentDensity: null },
         timeMode: null, confidence: "invalid", errors: ["CSV header row was not detected."], duplicateHeaders: [],
       };
     }
@@ -134,6 +137,8 @@
     const candidates = rowClassification(headers);
     const voltage = uniqueIndex(candidates.voltageCandidates);
     const current = uniqueIndex(candidates.currentCandidates);
+    const currentDensity = uniqueIndex(candidates.currentDensityCandidates);
+    const currentValue = current ?? currentDensity;
     let time = uniqueIndex(candidates.elapsedCandidates);
     let currentTime = time;
     let timeMode = time == null ? null : "elapsed";
@@ -142,9 +147,9 @@
       if (candidates.timestampCandidates.length === 1) {
         time = candidates.timestampCandidates[0];
         currentTime = time;
-      } else if (candidates.timestampCandidates.length === 2 && voltage != null && current != null) {
+      } else if (candidates.timestampCandidates.length === 2 && voltage != null && currentValue != null) {
         time = precedingTime(voltage, candidates.timestampCandidates);
-        currentTime = precedingTime(current, candidates.timestampCandidates);
+        currentTime = precedingTime(currentValue, candidates.timestampCandidates);
       }
       if (time != null && currentTime != null) timeMode = "timestamp";
     }
@@ -175,19 +180,21 @@
     if (candidates.timestampCandidates.length === 2 && (time == null || currentTime == null || time === currentTime)) errors.push("Voltage and current timestamp columns are ambiguous.");
     if (candidates.voltageCandidates.length > 1) errors.push("Voltage column is ambiguous.");
     if (candidates.currentCandidates.length > 1) errors.push("Current column is ambiguous.");
+    if (candidates.currentDensityCandidates.length > 1) errors.push("Current-density column is ambiguous.");
+    if (current != null && currentDensity != null) errors.push("Both current and current-density columns were detected. Select one explicitly.");
     if (time == null && !errors.some(error => error.includes("Time column"))) errors.push("Voltage time column was not detected.");
     if (currentTime == null && !errors.some(error => error.includes("timestamp columns"))) errors.push("Current time column was not detected.");
     if (voltage == null && !errors.some(error => error.includes("Voltage column"))) errors.push("Voltage column was not detected.");
-    if (current == null && !errors.some(error => error.includes("Current column"))) errors.push("Current column was not detected.");
+    if (currentValue == null && !errors.some(error => error.includes("Current column") || error.includes("Current-density"))) errors.push("Current or current-density column was not detected.");
 
-    const detectedSource = timeMode === "elapsed" && time != null && voltage != null && current != null
+    const detectedSource = timeMode === "elapsed" && time != null && voltage != null && currentValue != null && !(current != null && currentDensity != null)
       ? SOURCE_QPX
-      : timeMode === "timestamp" && time != null && currentTime != null && voltage != null && current != null
+      : timeMode === "timestamp" && time != null && currentTime != null && voltage != null && currentValue != null && !(current != null && currentDensity != null)
         ? SOURCE_TEST_BRIDGE
         : null;
     return {
       headers, rows: dataRows, allRows, metadataRows, headerRowIndex, detectedSource,
-      mapping: { time, voltage, currentTime, current }, timeMode,
+      mapping: { time, voltage, currentTime, current, currentDensity }, timeMode,
       confidence: detectedSource && errors.length === 0 ? "certain" : "uncertain",
       errors, candidates, duplicateHeaders,
     };
@@ -222,23 +229,43 @@
     return before.value + ratio * (after.value - before.value);
   }
 
-  function normalizeQpx(inspection, mapping) {
+  function currentMapping(inspection, mapping, electrodeAreaCm2) {
+    const hasCurrent = Number.isInteger(mapping.current);
+    const hasDensity = Number.isInteger(mapping.currentDensity);
+    if (hasCurrent === hasDensity) throw new Error("Map exactly one current or current-density column.");
+    const index = hasCurrent ? mapping.current : mapping.currentDensity;
+    assertColumnIndex(inspection.headers, index, hasCurrent ? "Current" : "Current density");
+    const unit = hasDensity ? classifyHeader(inspection.headers[index]).currentDensityUnit : null;
+    const area = Number(electrodeAreaCm2);
+    if (!Number.isFinite(area) || area <= 0) throw new Error("Electrode area must be a positive number.");
+    return {
+      index,
+      role: hasCurrent ? "current" : "current density",
+      convert(value) {
+        if (hasCurrent) return { current: value, currentDensity: value / area };
+        const currentDensity = unit === "mA/cm2" ? value / 1000 : value;
+        return { current: currentDensity * area, currentDensity };
+      },
+    };
+  }
+
+  function normalizeQpx(inspection, mapping, electrodeAreaCm2) {
     assertColumnIndex(inspection.headers, mapping.time, "Elapsed time");
     assertColumnIndex(inspection.headers, mapping.voltage, "Voltage");
-    assertColumnIndex(inspection.headers, mapping.current, "Current");
-    if (new Set([mapping.time, mapping.voltage, mapping.current]).size !== 3) throw new Error("Elapsed time, voltage, and current must map to three different columns.");
+    const currentMap = currentMapping(inspection, mapping, electrodeAreaCm2);
+    if (new Set([mapping.time, mapping.voltage, currentMap.index]).size !== 3) throw new Error("Elapsed time, voltage, and current/current density must map to three different columns.");
     const points = inspection.rows.map((row, rowIndex) => {
       const displayRow = inspection.headerRowIndex + rowIndex + 2;
       const timeText = String(row[mapping.time] ?? "").trim();
       const voltageText = String(row[mapping.voltage] ?? "").trim();
-      const currentText = String(row[mapping.current] ?? "").trim();
+      const currentText = String(row[currentMap.index] ?? "").trim();
       const elapsedTimeSeconds = Number(timeText);
       const voltage = Number(voltageText);
-      const current = Number(currentText);
+      const currentValue = Number(currentText);
       if (!timeText || !Number.isFinite(elapsedTimeSeconds)) throw new Error(`Row ${displayRow}: elapsed time is missing or nonnumeric.`);
       if (!voltageText || !Number.isFinite(voltage)) throw new Error(`Row ${displayRow}: voltage is missing or nonnumeric.`);
-      if (!currentText || !Number.isFinite(current)) throw new Error(`Row ${displayRow}: current is missing or nonnumeric.`);
-      return { elapsedTimeSeconds, voltage, current };
+      if (!currentText || !Number.isFinite(currentValue)) throw new Error(`Row ${displayRow}: ${currentMap.role} is missing or nonnumeric.`);
+      return { elapsedTimeSeconds, voltage, ...currentMap.convert(currentValue) };
     });
     if (!points.length) throw new Error("No data rows were found.");
     if (points.some(point => point.elapsedTimeSeconds < 0)) throw new Error("Elapsed time cannot be negative.");
@@ -249,24 +276,24 @@
     return {
       points,
       voltageSeries: points.map(point => ({ elapsedTimeSeconds: point.elapsedTimeSeconds, voltage: point.voltage })),
-      currentSeries: points.map(point => ({ elapsedTimeSeconds: point.elapsedTimeSeconds, current: point.current })),
+      currentSeries: points.map(point => ({ elapsedTimeSeconds: point.elapsedTimeSeconds, current: point.current, currentDensity: point.currentDensity })),
       alignment: { method: "direct", overlapStartSeconds: points[0].elapsedTimeSeconds, overlapEndSeconds: points[points.length - 1].elapsedTimeSeconds },
     };
   }
 
-  function readTestBridgeSeries(inspection, mapping) {
+  function readTestBridgeSeries(inspection, mapping, electrodeAreaCm2) {
     assertColumnIndex(inspection.headers, mapping.time, "Voltage timestamp");
     assertColumnIndex(inspection.headers, mapping.voltage, "Voltage");
     assertColumnIndex(inspection.headers, mapping.currentTime, "Current timestamp");
-    assertColumnIndex(inspection.headers, mapping.current, "Current");
-    if (mapping.time === mapping.voltage || mapping.currentTime === mapping.current || mapping.voltage === mapping.current) throw new Error("Timestamp, voltage, and current mappings conflict.");
+    const currentMap = currentMapping(inspection, mapping, electrodeAreaCm2);
+    if (mapping.time === mapping.voltage || mapping.currentTime === currentMap.index || mapping.voltage === currentMap.index) throw new Error("Timestamp, voltage, and current/current-density mappings conflict.");
     const voltageRaw = [];
     const currentRaw = [];
     inspection.rows.forEach((row, rowIndex) => {
       const displayRow = inspection.headerRowIndex + rowIndex + 2;
       const voltageText = String(row[mapping.voltage] ?? "").trim();
       const voltageTimeText = String(row[mapping.time] ?? "").trim();
-      const currentText = String(row[mapping.current] ?? "").trim();
+      const currentText = String(row[currentMap.index] ?? "").trim();
       const currentTimeText = String(row[mapping.currentTime] ?? "").trim();
       if (voltageText) {
         const voltage = Number(voltageText);
@@ -276,33 +303,33 @@
         voltageRaw.push({ absoluteTimeMs, value: voltage });
       }
       if (currentText) {
-        const current = Number(currentText);
+        const currentValue = Number(currentText);
         const absoluteTimeMs = parseTimestamp(currentTimeText);
-        if (!Number.isFinite(current)) throw new Error(`Row ${displayRow}: current is nonnumeric.`);
+        if (!Number.isFinite(currentValue)) throw new Error(`Row ${displayRow}: ${currentMap.role} is nonnumeric.`);
         if (!Number.isFinite(absoluteTimeMs)) throw new Error(`Row ${displayRow}: current timestamp is missing or invalid.`);
-        currentRaw.push({ absoluteTimeMs, value: current });
+        currentRaw.push({ absoluteTimeMs, value: currentValue });
       }
     });
     if (!voltageRaw.length) throw new Error("No numeric voltage samples were found.");
     if (!currentRaw.length) throw new Error("No numeric current samples were found.");
     assertAscending(voltageRaw, "Voltage series");
     assertAscending(currentRaw, "Current series");
-    return { voltageRaw, currentRaw };
+    return { voltageRaw, currentRaw, currentMap };
   }
 
-  function normalizeTestBridge(inspection, mapping) {
-    const { voltageRaw, currentRaw } = readTestBridgeSeries(inspection, mapping);
+  function normalizeTestBridge(inspection, mapping, electrodeAreaCm2) {
+    const { voltageRaw, currentRaw, currentMap } = readTestBridgeSeries(inspection, mapping, electrodeAreaCm2);
     const experimentStartMs = Math.min(voltageRaw[0].absoluteTimeMs, currentRaw[0].absoluteTimeMs);
     const overlapStartMs = Math.max(voltageRaw[0].absoluteTimeMs, currentRaw[0].absoluteTimeMs);
     const overlapEndMs = Math.min(voltageRaw[voltageRaw.length - 1].absoluteTimeMs, currentRaw[currentRaw.length - 1].absoluteTimeMs);
     if (overlapEndMs < overlapStartMs) throw new Error("Voltage and current series have no shared time range.");
     const voltageSeries = voltageRaw.map(point => ({ elapsedTimeSeconds: (point.absoluteTimeMs - experimentStartMs) / 1000, voltage: point.value }));
-    const currentSeries = currentRaw.map(point => ({ elapsedTimeSeconds: (point.absoluteTimeMs - experimentStartMs) / 1000, current: point.value }));
+    const currentSeries = currentRaw.map(point => ({ elapsedTimeSeconds: (point.absoluteTimeMs - experimentStartMs) / 1000, ...currentMap.convert(point.value) }));
     const alignedVoltage = voltageRaw.filter(point => point.absoluteTimeMs >= overlapStartMs && point.absoluteTimeMs <= overlapEndMs);
     const points = alignedVoltage.map(point => {
-      const current = interpolateAt(currentRaw, point.absoluteTimeMs);
-      if (!Number.isFinite(current)) throw new Error("Current interpolation failed inside the shared time range.");
-      return { elapsedTimeSeconds: (point.absoluteTimeMs - experimentStartMs) / 1000, voltage: point.value, current };
+      const currentValue = interpolateAt(currentRaw, point.absoluteTimeMs);
+      if (!Number.isFinite(currentValue)) throw new Error("Current interpolation failed inside the shared time range.");
+      return { elapsedTimeSeconds: (point.absoluteTimeMs - experimentStartMs) / 1000, voltage: point.value, ...currentMap.convert(currentValue) };
     });
     if (!points.length) throw new Error("No voltage samples fall inside the shared voltage/current time range.");
     return {
@@ -339,7 +366,7 @@
       voltage: point.value,
     }));
     return {
-      points: voltageSeries.map(point => ({ ...point, current: null })),
+      points: voltageSeries.map(point => ({ ...point, current: null, currentDensity: null })),
       voltageSeries,
       currentSeries: [],
       voltageOnly: true,
@@ -357,12 +384,13 @@
     const mapping = options?.mapping || {};
     if (![SOURCE_QPX, SOURCE_TEST_BRIDGE].includes(source)) throw new Error("Choose QPX600DP Readable or Test Bridge as the source format.");
     const voltageOnly = source === SOURCE_TEST_BRIDGE && options?.voltageOnly === true;
+    const electrodeAreaCm2 = options?.electrodeAreaCm2 ?? 5;
     if (inspection.duplicateHeaders.length && !voltageOnly) throw new Error(`Duplicated required header${inspection.duplicateHeaders.length === 1 ? "" : "s"}: ${inspection.duplicateHeaders.join(", ")}.`);
     const normalized = source === SOURCE_QPX
-      ? normalizeQpx(inspection, mapping)
+      ? normalizeQpx(inspection, mapping, electrodeAreaCm2)
       : voltageOnly
         ? normalizeTestBridgeVoltageOnly(inspection, mapping)
-        : normalizeTestBridge(inspection, mapping);
+        : normalizeTestBridge(inspection, mapping, electrodeAreaCm2);
     return {
       source,
       headers: inspection.headers.slice(),
@@ -374,6 +402,7 @@
         voltage: inspection.headers[mapping.voltage],
         currentTime: voltageOnly ? null : inspection.headers[source === SOURCE_QPX ? mapping.time : mapping.currentTime],
         current: voltageOnly ? null : inspection.headers[mapping.current],
+        currentDensity: voltageOnly ? null : inspection.headers[mapping.currentDensity],
       },
     };
   }
