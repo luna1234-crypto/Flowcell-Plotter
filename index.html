@@ -172,7 +172,7 @@
     <section class="panel">
       <div class="controls">
         <div>
-          <label for="fileInput">Flowcell folder</label>
+          <label for="fileInput">Flowcell folder (contains material folders)</label>
           <input id="fileInput" type="file" webkitdirectory directory multiple accept=".csv,.CSV,.txt,.TXT" />
         </div>
         <div>
@@ -252,7 +252,7 @@
     </div>
   </main>
 
-  <script src="flowcell-importer.js?v=20261117-4"></script>
+  <script src="flowcell-importer.js?v=20261119-5"></script>
   <script>
     const ELECTRODE_AREA_CM2 = 5;
     const state = { materials: new Map(), selected: [], styles: new Map(), lineConfigs: [], issues: [], importIssues: [], skippedImportIssues: [], pendingFiles: [], importConfigs: [] };
@@ -263,7 +263,9 @@
     function materialName(file) {
       const path = file.webkitRelativePath || "";
       const parts = path.split("/").filter(Boolean);
-      return parts.length > 2 ? parts[parts.length - 2] : (parts[0] || "Uploaded material");
+      // The selected folder is the upload root. Its first child is the material;
+      // every deeper IV, CP, GEIS, PEIS, raw, or results subfolder inherits it.
+      return parts.length > 2 ? parts[1] : (parts[0] || "Uploaded material");
     }
 
     function sequenceNumber(file) {
