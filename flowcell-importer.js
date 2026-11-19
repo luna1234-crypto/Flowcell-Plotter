@@ -315,13 +315,54 @@
     };
   }
 
+  function normalizeTestBridgeVoltageOnly(inspection, mapping) {
+    assertColumnIndex(inspection.headers, mapping.time, "Voltage timestamp");
+    assertColumnIndex(inspection.headers, mapping.voltage, "Voltage");
+    if (mapping.time === mapping.voltage) throw new Error("Voltage timestamp and voltage mappings conflict.");
+    const voltageRaw = [];
+    inspection.rows.forEach((row, rowIndex) => {
+      const displayRow = inspection.headerRowIndex + rowIndex + 2;
+      const voltageText = String(row[mapping.voltage] ?? "").trim();
+      const voltageTimeText = String(row[mapping.time] ?? "").trim();
+      if (!voltageText) return;
+      const voltage = Number(voltageText);
+      const absoluteTimeMs = parseTimestamp(voltageTimeText);
+      if (!Number.isFinite(voltage)) throw new Error(`Row ${displayRow}: voltage is nonnumeric.`);
+      if (!Number.isFinite(absoluteTimeMs)) throw new Error(`Row ${displayRow}: voltage timestamp is missing or invalid.`);
+      voltageRaw.push({ absoluteTimeMs, value: voltage });
+    });
+    if (!voltageRaw.length) throw new Error("No numeric voltage samples were found.");
+    assertAscending(voltageRaw, "Voltage series");
+    const experimentStartMs = voltageRaw[0].absoluteTimeMs;
+    const voltageSeries = voltageRaw.map(point => ({
+      elapsedTimeSeconds: (point.absoluteTimeMs - experimentStartMs) / 1000,
+      voltage: point.value,
+    }));
+    return {
+      points: voltageSeries.map(point => ({ ...point, current: null })),
+      voltageSeries,
+      currentSeries: [],
+      voltageOnly: true,
+      alignment: {
+        method: "voltage-only",
+        overlapStartSeconds: voltageSeries[0].elapsedTimeSeconds,
+        overlapEndSeconds: voltageSeries[voltageSeries.length - 1].elapsedTimeSeconds,
+      },
+    };
+  }
+
   function normalizeCsv(text, options) {
     const inspection = inspectCsv(text);
     const source = options?.source;
     const mapping = options?.mapping || {};
     if (![SOURCE_QPX, SOURCE_TEST_BRIDGE].includes(source)) throw new Error("Choose QPX600DP Readable or Test Bridge as the source format.");
-    if (inspection.duplicateHeaders.length) throw new Error(`Duplicated required header${inspection.duplicateHeaders.length === 1 ? "" : "s"}: ${inspection.duplicateHeaders.join(", ")}.`);
-    const normalized = source === SOURCE_QPX ? normalizeQpx(inspection, mapping) : normalizeTestBridge(inspection, mapping);
+    const voltageOnly = source === SOURCE_TEST_BRIDGE && options?.voltageOnly === true;
+    if (inspection.duplicateHeaders.length && !voltageOnly) throw new Error(`Duplicated required header${inspection.duplicateHeaders.length === 1 ? "" : "s"}: ${inspection.duplicateHeaders.join(", ")}.`);
+    const normalized = source === SOURCE_QPX
+      ? normalizeQpx(inspection, mapping)
+      : voltageOnly
+        ? normalizeTestBridgeVoltageOnly(inspection, mapping)
+        : normalizeTestBridge(inspection, mapping);
     return {
       source,
       headers: inspection.headers.slice(),
@@ -331,8 +372,8 @@
       mappedColumns: {
         time: inspection.headers[mapping.time],
         voltage: inspection.headers[mapping.voltage],
-        currentTime: inspection.headers[source === SOURCE_QPX ? mapping.time : mapping.currentTime],
-        current: inspection.headers[mapping.current],
+        currentTime: voltageOnly ? null : inspection.headers[source === SOURCE_QPX ? mapping.time : mapping.currentTime],
+        current: voltageOnly ? null : inspection.headers[mapping.current],
       },
     };
   }
