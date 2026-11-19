@@ -184,7 +184,7 @@
             <div id="nextGeisSetting"><label for="nextGeisFile">GEIS for iR correction</label><select id="nextGeisFile" disabled><option value="">No GEIS detected</option></select></div>
           </div>
           <div class="next-line-settings">
-            <div><label for="nextLegend">Legend name</label><input id="nextLegend" placeholder="Legend name" disabled /></div>
+            <div><label for="nextLegend">Curve name</label><input id="nextLegend" placeholder="Curve name" disabled /></div>
             <div><label for="nextColor">Line color</label><input id="nextColor" type="color" value="#156f8c" disabled /></div>
             <div class="wide"><label for="nextLineStyle">Line style</label><select id="nextLineStyle" disabled><option value="solid">Solid</option><option value="long-dash">Long dash</option><option value="short-dash">Short dash</option><option value="dotted">Dotted</option><option value="dashdot">Dash-dot</option></select></div>
           </div>
@@ -198,7 +198,7 @@
         <ul id="validationList"></ul>
       </div>
       <h3 class="section-title" style="margin-top:18px;">Added lines <span id="lineCount" class="chart-note">(0)</span></h3>
-      <div class="legend-header"><span>Material</span><span>Legend name</span><span>Line style</span><span>Color</span><span></span></div>
+      <div class="legend-header"><span>Material</span><span>Curve name</span><span>Line style</span><span>Color</span><span></span></div>
       <div id="legendSettings" class="legend-list"></div>
     </section>
 
@@ -224,7 +224,7 @@
       <h2 class="section-title">IV Summary</h2>
       <div id="ivTableEmpty" class="chart-note">Upload data to view the IV summary.</div>
       <table id="ivTable" hidden>
-        <thead><tr><th>Material</th><th>Applied I (A)</th><th>Average I (A)</th><th>Applied j (A cm⁻²)</th><th>Average j (A cm⁻²)</th><th>Raw average V (V)</th><th>Rs (Ω)</th><th>iR drop (V)</th><th>Corrected V (V)</th><th>IV file</th><th>GEIS file</th></tr></thead>
+        <thead><tr><th>Curve name</th><th>Applied I (A)</th><th>Average I (A)</th><th>Applied j (A cm⁻²)</th><th>Average j (A cm⁻²)</th><th>Raw average V (V)</th><th>Rs (Ω)</th><th>iR drop (V)</th><th>Corrected V (V)</th><th>IV file</th><th>GEIS file</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
@@ -232,7 +232,7 @@
       <h2 class="section-title">Simplified IV Summary</h2>
       <div id="simpleIvTableEmpty" class="chart-note">Upload IV data to view the simplified summary.</div>
       <table id="simpleIvTable" hidden>
-        <thead><tr><th>Material</th><th>Ohmic resistance, Rs (Ω)</th><th>Overpotential at 100 mA cm⁻² (mV)</th><th>iR correction applied</th></tr></thead>
+        <thead><tr><th>Curve name</th><th>Ohmic resistance, Rs (Ω)</th><th>Overpotential at 100 mA cm⁻² (mV)</th><th>iR correction applied</th></tr></thead>
         <tbody></tbody>
       </table>
       <p class="method-note">Overpotential is calculated by linear interpolation at 0.1 A cm⁻²: η = (V − 1.23 V) × 1000. Values outside the measured range are not extrapolated.</p>
@@ -241,7 +241,7 @@
     </div>
   </main>
 
-  <script src="flowcell-importer.js?v=20261119-10"></script>
+  <script src="flowcell-importer.js?v=20261119-11"></script>
   <script>
     const ELECTRODE_AREA_CM2 = 5;
     const state = { materials: new Map(), selected: [], styles: new Map(), lineConfigs: [], issues: [], importIssues: [], skippedImportIssues: [], pendingFiles: [], importConfigs: [] };
@@ -452,6 +452,7 @@
         .map(config => config.dataSelection)
         .filter(Boolean));
       populateDataFileSelect(choices, kind === "iv" ? "No IV data" : "No CP / Hold data", usedFiles);
+      $("nextLegend").value = $("nextDataFile").value ? conciseDataLabel(material, $("nextDataFile").value, kind) : "";
       syncNextGeisFile();
     }
 
@@ -478,7 +479,6 @@
       const material = $("materialSelect").value;
       if (!material) return;
       const style = materialStyle(material, state.lineConfigs.length);
-      $("nextLegend").value = style.label;
       $("nextColor").value = style.color;
       $("nextLineStyle").value = style.lineStyle;
       const ivAvailable = dataFileChoices(material, "iv").length > 0;
@@ -501,7 +501,7 @@
         const selectedFile = config.dataSelection === "steps" ? "Stepped IV" : config.dataSelection.replace(/^file:/, "");
         return `<div class="legend-row">
           <span>${config.material}<small>${escapeHtml(`${selectedType}: ${selectedFile}`)}</small><small>${correctionNote}</small></span>
-          <input data-style="label" data-index="${index}" value="${style.label.replaceAll('"', '&quot;')}" placeholder="Legend name" aria-label="Legend label for ${config.material}">
+          <input data-style="label" data-index="${index}" value="${style.label.replaceAll('"', '&quot;')}" placeholder="Curve name" aria-label="Curve name for ${config.material}">
           <select data-style="lineStyle" data-index="${index}" aria-label="Line style for ${config.material}">
             <option value="solid" ${style.lineStyle === "solid" ? "selected" : ""}>Solid</option>
             <option value="long-dash" ${style.lineStyle === "long-dash" ? "selected" : ""}>Long dash</option>
@@ -921,9 +921,15 @@
 
     $("materialSelect").addEventListener("change", syncNextLineSettings);
     $("nextDataType").addEventListener("change", syncNextDataFile);
+    $("nextDataFile").addEventListener("change", () => {
+      const material = $("materialSelect").value;
+      const dataType = $("nextDataType").value;
+      $("nextLegend").value = $("nextDataFile").value ? conciseDataLabel(material, $("nextDataFile").value, dataType) : "";
+      syncNextGeisFile();
+    });
 
     function conciseDataLabel(material, dataSelection, dataType) {
-      if (dataSelection === "steps") return "Stepped IV";
+      if (dataSelection === "steps") return material;
       let label = dataSelection.replace(/^file:/, "").replace(/\.csv$/i, "");
       if (label.toLowerCase().startsWith(material.toLowerCase())) label = label.slice(material.length);
       label = label.replace(/[\s_.-]*readable\s*$/i, "").replace(/^[\s_.-]+|[\s_.-]+$/g, "").trim();
@@ -947,12 +953,9 @@
         setStatus("This material, data type, and file have already been added.", true);
         return;
       }
-      const sameTypeCount = state.lineConfigs.filter(config => config.material === material && config.dataType === dataType).length;
       const selectedFileLabel = conciseDataLabel(material, dataSelection, dataType);
       const enteredLabel = $("nextLegend").value.trim();
-      const label = sameTypeCount > 0 && (!enteredLabel || enteredLabel === material)
-        ? `${material} · ${selectedFileLabel}`
-        : enteredLabel || material;
+      const label = enteredLabel || selectedFileLabel;
       state.lineConfigs.push({
         material,
         dataType,
@@ -1076,7 +1079,7 @@
             ]);
           });
         });
-        downloadCSV("iv_curve", ["Material", "IV File", "Applied Current (A)", "Average Current, last 30 s (A)", "Applied Current Density (A/cm^2)", "Average Current Density, last 30 s (A/cm^2)", "Raw Average Voltage, last 30 s (V)", "Rs (Ohm)", "iR Drop (V)", "Corrected Voltage (V)", "GEIS File"], rows);
+        downloadCSV("iv_curve", ["Curve name", "IV File", "Applied Current (A)", "Average Current, last 30 s (A)", "Applied Current Density (A/cm^2)", "Average Current Density, last 30 s (A/cm^2)", "Raw Average Voltage, last 30 s (V)", "Rs (Ohm)", "iR Drop (V)", "Corrected Voltage (V)", "GEIS File"], rows);
         return;
       }
 
@@ -1091,7 +1094,7 @@
           point.voltage,
         ]));
       });
-      downloadCSV(`${kind}_voltage_time`, ["Material", "File", "Time (s)", "Voltage (V)"], rows);
+      downloadCSV(`${kind}_voltage_time`, ["Curve name", "File", "Time (s)", "Voltage (V)"], rows);
     }
 
     function drawSelected() {
