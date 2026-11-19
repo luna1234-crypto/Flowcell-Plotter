@@ -252,7 +252,7 @@
     </div>
   </main>
 
-  <script src="flowcell-importer.js?v=20261119-5"></script>
+  <script src="flowcell-importer.js?v=20261119-6"></script>
   <script>
     const ELECTRODE_AREA_CM2 = 5;
     const state = { materials: new Map(), selected: [], styles: new Map(), lineConfigs: [], issues: [], importIssues: [], skippedImportIssues: [], pendingFiles: [], importConfigs: [] };
@@ -548,10 +548,10 @@
 
     async function parseCsvFile(file, config) {
       const text = config?.text ?? await file.text();
-      const normalized = FlowcellImporter.normalizeCsv(text, { source: config?.source, mapping: config?.mapping });
+      const normalized = FlowcellImporter.normalizeCsv(text, { source: config?.source, mapping: config?.mapping, voltageOnly: config?.voltageOnly });
       let zeroCurrentRowCount = 0;
       const points = normalized.points.filter(point => {
-        if (Math.abs(point.current) === 0) { zeroCurrentRowCount += 1; return false; }
+        if (Number.isFinite(point.current) && Math.abs(point.current) === 0) { zeroCurrentRowCount += 1; return false; }
         return true;
       });
       const inferredKind = normalized.source === FlowcellImporter.SOURCE_QPX && /[\s_-]readable\.csv$/i.test(file.name)
@@ -576,6 +576,7 @@
         sourceFormat: normalized.source,
         mappedColumns: normalized.mappedColumns,
         alignment: normalized.alignment,
+        voltageOnly: normalized.voltageOnly === true,
         rawImport: { headers: normalized.headers, rows: normalized.rawRows, metadataRows: normalized.metadataRows },
       };
     }
@@ -606,9 +607,10 @@
       const start = end - 30;
       const last = item.points.filter(point => point.elapsedTimeSeconds >= start);
       if (!last.length) return null;
+      const currentPoints = last.filter(point => Number.isFinite(point.current));
       return {
         averageVoltage: last.reduce((sum, point) => sum + point.voltage, 0) / last.length,
-        averageCurrent: last.reduce((sum, point) => sum + point.current, 0) / last.length,
+        averageCurrent: currentPoints.length ? currentPoints.reduce((sum, point) => sum + point.current, 0) / currentPoints.length : null,
         count: last.length,
       };
     }
@@ -759,6 +761,7 @@
       }
       if (config.source === FlowcellImporter.SOURCE_TEST_BRIDGE) {
         const { time, voltage, currentTime, current } = config.mapping;
+        if (config.voltageOnly) return [time, voltage].every(Number.isInteger) && time !== voltage;
         return [time, voltage, currentTime, current].every(Number.isInteger)
           && time !== voltage && currentTime !== current && voltage !== current;
       }
@@ -767,6 +770,27 @@
 
     function renderImportReview() {
       return;
+    }
+
+    function identicalMappedColumns(inspection, indexes) {
+      if (indexes.length < 2) return true;
+      return inspection.rows.every(row => {
+        const first = String(row[indexes[0]] ?? "").trim();
+        return indexes.slice(1).every(index => String(row[index] ?? "").trim() === first);
+      });
+    }
+
+    function voltageOnlyTestBridgeMapping(file, inspection) {
+      if (typeOf(file) !== "hold") return null;
+      const timestamps = inspection.candidates?.timestampCandidates || [];
+      const voltages = inspection.candidates?.voltageCandidates || [];
+      const currents = inspection.candidates?.currentCandidates || [];
+      if (!timestamps.length || !voltages.length || currents.length) return null;
+      if (!identicalMappedColumns(inspection, timestamps) || !identicalMappedColumns(inspection, voltages)) return null;
+      const voltage = voltages[0];
+      const precedingTimestamps = timestamps.filter(index => index < voltage);
+      const time = precedingTimestamps.length ? precedingTimestamps[precedingTimestamps.length - 1] : timestamps[0];
+      return { time, voltage, currentTime: null, current: null };
     }
 
     async function prepareImports(files) {
@@ -787,13 +811,15 @@
           && normalizedHeaders.includes("measured voltage v")
           && normalizedHeaders.includes("measured current a");
         if (isNewSoftwareRaw) continue;
+        const voltageOnlyMapping = voltageOnlyTestBridgeMapping(file, inspection);
         const config = {
           file,
           kind: typeOf(file),
           text,
           inspection,
-          source: inspection.detectedSource,
-          mapping: { ...inspection.mapping },
+          source: voltageOnlyMapping ? FlowcellImporter.SOURCE_TEST_BRIDGE : inspection.detectedSource,
+          mapping: voltageOnlyMapping || { ...inspection.mapping },
+          voltageOnly: Boolean(voltageOnlyMapping),
           processError: null,
         };
         if (!importConfigReady(config)) {
@@ -840,7 +866,16 @@
           if (!state.materials.has(material)) state.materials.set(material, []);
           try {
             const config = state.importConfigs.find(item => item.file === file);
-            state.materials.get(material).push(await parseFile(file, config));
+            const parsed = await parseFile(file, config);
+            state.materials.get(material).push(parsed);
+            if (parsed.voltageOnly) {
+              state.importIssues.push({
+                level: "warning",
+                material,
+                file: file.name,
+                message: "Voltage-only CP loaded. Current is unavailable; Hold voltage-time only.",
+              });
+            }
           } catch (error) {
             const config = state.importConfigs.find(item => item.file === file);
             if (config) config.processError = error.message;
