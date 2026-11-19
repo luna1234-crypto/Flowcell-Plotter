@@ -212,7 +212,7 @@
         <div class="chart-head"><h2>IV Curve</h2><div class="chart-actions"><span id="ivMethodNote" class="chart-note">Last 30 seconds · 5 cm² · raw voltage</span><button class="icon-button" type="button" data-save="ivChart" data-name="iv_curve" title="Save IV curve" aria-label="Save IV curve">↓</button><button class="icon-button" type="button" data-copy="ivChart" title="Copy IV curve" aria-label="Copy IV curve">⧉</button><button class="icon-button" type="button" data-csv="iv" title="Save IV CSV" aria-label="Save IV CSV">▤</button></div></div>
         <div id="ivEmpty" class="empty">Upload data to view the IV curve.</div>
         <canvas id="ivChart" hidden></canvas>
-        <details class="chart-local-settings"><summary>IV plot settings</summary><div class="settings-grid"><div class="plot-title-setting"><label for="ivTitle">Plot title</label><input id="ivTitle" value="IV Curve" /></div><div><label for="ivLegendPosition">Legend position</label><select id="ivLegendPosition"><option value="best">Best</option><option value="top-right">Top right</option><option value="top-left">Top left</option><option value="bottom-right">Bottom right</option><option value="bottom-left">Bottom left</option></select></div><div><label for="ivXDecimals">X decimal places</label><select id="ivXDecimals"><option value="auto">Auto</option><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div><div><label for="ivYDecimals">Y decimal places</label><select id="ivYDecimals"><option value="auto">Auto</option><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div><label><input id="ivShowLegend" type="checkbox" checked /> Legend box</label><div><label for="ivXRange">X range</label><input id="ivXRange" data-chart-setting placeholder="Auto, e.g. 0,2" /></div><div><label for="ivYRange">Y range</label><input id="ivYRange" data-chart-setting placeholder="Auto, e.g. 1,2.5" /></div><div><label for="ivXTick">X interval</label><input id="ivXTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div><div><label for="ivYTick">Y interval</label><input id="ivYTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div></div><p class="method-note">Area is fixed at 5 cm². Direct current-density input is used as supplied; current is reconstructed as j × 5 cm² for iR correction.</p></details>
+        <details class="chart-local-settings"><summary>IV plot settings</summary><div class="settings-grid"><div class="plot-title-setting"><label for="ivTitle">Plot title</label><input id="ivTitle" value="IV Curve" /></div><div><label for="ivLegendPosition">Legend position</label><select id="ivLegendPosition"><option value="best">Best</option><option value="top-right">Top right</option><option value="top-left">Top left</option><option value="bottom-right">Bottom right</option><option value="bottom-left">Bottom left</option></select></div><div><label for="ivXDecimals">X decimal places</label><select id="ivXDecimals"><option value="auto">Auto</option><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div><div><label for="ivYDecimals">Y decimal places</label><select id="ivYDecimals"><option value="auto">Auto</option><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div><label><input id="ivShowLegend" type="checkbox" checked /> Legend box</label><div><label for="ivXRange">X range</label><input id="ivXRange" data-chart-setting placeholder="Auto, e.g. 0,2" /></div><div><label for="ivYRange">Y range</label><input id="ivYRange" data-chart-setting placeholder="Auto, e.g. 1,2.5" /></div><div><label for="ivXTick">X interval</label><input id="ivXTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div><div><label for="ivYTick">Y interval</label><input id="ivYTick" data-chart-setting type="number" min="0" step="any" placeholder="Auto" /></div></div><p class="method-note">Area is fixed at 5 cm². Files provide current in A; current density is calculated as j = I / 5 cm².</p></details>
       </article>
       <article class="panel chart-card">
         <div class="chart-head"><h2>Hold</h2><div class="chart-actions"><span class="chart-note">Voltage vs time</span><button class="icon-button" type="button" data-save="holdChart" data-name="hold_voltage_time" title="Save hold chart" aria-label="Save hold chart">↓</button><button class="icon-button" type="button" data-copy="holdChart" title="Copy hold chart" aria-label="Copy hold chart">⧉</button><button class="icon-button" type="button" data-csv="hold" title="Save hold CSV" aria-label="Save hold CSV">▤</button></div></div>
@@ -243,7 +243,7 @@
     </div>
   </main>
 
-  <script src="flowcell-importer.js?v=20261119-12"></script>
+  <script src="flowcell-importer.js?v=20261119-13"></script>
   <script>
     const ELECTRODE_AREA_CM2 = 5;
     const state = { materials: new Map(), selected: [], styles: new Map(), lineConfigs: [], issues: [], importIssues: [], skippedImportIssues: [], pendingFiles: [], importConfigs: [] };
@@ -749,13 +749,11 @@
       if (config.kind === "break") return true;
       if (config.inspection.duplicateHeaders.length && !config.voltageOnly) return false;
       if (config.source === FlowcellImporter.SOURCE_QPX) {
-        const currentValue = config.mapping.current ?? config.mapping.currentDensity;
-        const indexes = [config.mapping.time, config.mapping.voltage, currentValue];
+        const indexes = [config.mapping.time, config.mapping.voltage, config.mapping.current];
         return indexes.every(Number.isInteger) && new Set(indexes).size === 3;
       }
       if (config.source === FlowcellImporter.SOURCE_TEST_BRIDGE) {
-        const { time, voltage, currentTime } = config.mapping;
-        const current = config.mapping.current ?? config.mapping.currentDensity;
+        const { time, voltage, currentTime, current } = config.mapping;
         if (config.voltageOnly) return [time, voltage].every(Number.isInteger) && time !== voltage;
         return [time, voltage, currentTime, current].every(Number.isInteger)
           && time !== voltage && currentTime !== current && voltage !== current;
@@ -780,8 +778,7 @@
       const timestamps = inspection.candidates?.timestampCandidates || [];
       const voltages = inspection.candidates?.voltageCandidates || [];
       const currents = inspection.candidates?.currentCandidates || [];
-      const densities = inspection.candidates?.currentDensityCandidates || [];
-      if (!timestamps.length || !voltages.length || currents.length || densities.length) return null;
+      if (!timestamps.length || !voltages.length || currents.length) return null;
       if (!identicalMappedColumns(inspection, timestamps) || !identicalMappedColumns(inspection, voltages)) return null;
       const voltage = voltages[0];
       const precedingTimestamps = timestamps.filter(index => index < voltage);
